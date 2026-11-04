@@ -1,3 +1,4 @@
+import { WORK_LABELS, WORK_STATUSES, WorkStatus } from '../tickets/workflow';
 import { formatDuration } from '../time/report';
 import { HubModel, HubSession } from './model';
 
@@ -8,7 +9,8 @@ export type HubMessage =
   | { command: 'adjustTime' }
   | { command: 'openAgent'; session: string }
   | { command: 'openShell'; session: string }
-  | { command: 'openTask'; session: string };
+  | { command: 'openTask'; session: string }
+  | { command: 'setStatus'; status: WorkStatus };
 
 const SESSION_COMMANDS = ['openAgent', 'openShell', 'openTask'];
 const TICKET_COMMANDS = ['newSession', 'openInBrowser', 'adjustTime'];
@@ -71,6 +73,8 @@ h1{margin:0;font-size:24px;font-weight:600}
 h2{margin:0 0 10px;font-size:11px;letter-spacing:.06em;font-weight:600;color:var(--vscode-descriptionForeground)}
 .muted{color:var(--vscode-descriptionForeground)}.small{font-size:11px}.mono{font-family:var(--vscode-editor-font-family);font-size:12px}
 .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--vscode-descriptionForeground)}
+.meta label{display:flex;gap:6px;align-items:center}
+select{font:inherit;min-height:24px;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border)}
 .pill{padding:2px 8px;border-radius:10px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
 header{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:flex-start}
 header .text{flex:999 1 480px;min-width:0;display:flex;flex-direction:column;gap:10px}
@@ -106,7 +110,12 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
 <main>
 <header>
   <div class="text">
-    <div class="meta"><span class="mono">${esc(ticket.source)} · ${esc(ticket.id)}</span>${ticket.status ? `<span class="pill">${esc(ticket.status)}</span>` : ''}${ticket.listed ? '' : '<span>not in the tracker list anymore</span>'}</div>
+    <div class="meta">
+      <span class="mono">${esc(ticket.source)} · ${esc(ticket.id)}</span>
+      <label>Status <select id="workStatus">${WORK_STATUSES.map((s) => `<option value="${s}"${s === (ticket.workStatus ?? 'todo') ? ' selected' : ''}>${WORK_LABELS[s]}</option>`).join('')}</select></label>
+      ${ticket.status ? `<span title="From the last import; never changed by the workbench">${esc(ticket.source)}: ${esc(ticket.status)}</span>` : ''}
+      ${ticket.listed ? '' : '<span>not in the tracker list anymore</span>'}
+    </div>
     <h1>${esc(ticket.title)}</h1>
     ${ticket.description ? `<p class="desc">${esc(ticket.description)}</p>` : ''}
   </div>
@@ -152,6 +161,7 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
 </main>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
+document.getElementById('workStatus').addEventListener('change', (e) => vscode.postMessage({ command: 'setStatus', status: e.target.value }));
 for (const b of document.querySelectorAll('button[data-command]')) {
   b.addEventListener('click', () => vscode.postMessage({ command: b.dataset.command, session: b.dataset.session }));
 }
@@ -168,6 +178,10 @@ export function parseHubMessage(msg: unknown): HubMessage | undefined {
   const { command, session } = msg as { command?: unknown; session?: unknown };
   if (typeof command !== 'string') {
     return undefined;
+  }
+  if (command === 'setStatus') {
+    const { status } = msg as { status?: unknown };
+    return WORK_STATUSES.includes(status as WorkStatus) ? { command, status: status as WorkStatus } : undefined;
   }
   if (TICKET_COMMANDS.includes(command)) {
     return { command } as HubMessage;

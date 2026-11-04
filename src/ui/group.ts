@@ -1,3 +1,4 @@
+import { WORK_LABELS, WorkStatus } from '../tickets/workflow';
 import { Session, SessionTicket } from '../sessions/model';
 import { Snapshot } from '../tickets/snapshot';
 import { Ticket, TicketSourceConfig } from '../tickets/source';
@@ -22,18 +23,26 @@ export interface WorkModel {
 
 // Keeps tickets whose id, title or status contains the text (case-insensitive). Tickets with sessions
 // always stay, so running work never disappears behind a filter. Empty text: no filtering.
-export function filterWork(model: WorkModel, text: string): WorkModel {
+export interface FilterOptions {
+  workStatus?: (ticketKey: string) => WorkStatus; // also matched by the text, by its label
+  hideDone?: boolean; // hide "Done" tickets (those with sessions still stay)
+}
+
+export function filterWork(model: WorkModel, text: string, opts: FilterOptions = {}): WorkModel {
   const needle = text.trim().toLowerCase();
-  if (!needle) {
+  if (!needle && !opts.hideDone) {
     return model;
   }
+  const work = (g: TicketGroup) => opts.workStatus?.(`${g.ticket.source}:${g.ticket.id}`);
   const matches = (g: TicketGroup) => {
     const status = 'status' in g.ticket ? g.ticket.status : undefined;
-    return [g.ticket.id, g.ticket.title, status].some((v) => v?.toLowerCase().includes(needle));
+    const workLabel = work(g) && WORK_LABELS[work(g)!];
+    return !needle || [g.ticket.id, g.ticket.title, status, workLabel].some((v) => v?.toLowerCase().includes(needle));
   };
+  const keep = (g: TicketGroup) => g.sessions.length > 0 || (matches(g) && !(opts.hideDone && work(g) === 'done'));
   return {
     ...model,
-    sources: model.sources.map((s) => ({ ...s, tickets: s.tickets.filter((g) => g.sessions.length > 0 || matches(g)) })),
+    sources: model.sources.map((s) => ({ ...s, tickets: s.tickets.filter(keep) })),
   };
 }
 

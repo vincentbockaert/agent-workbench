@@ -18,6 +18,7 @@ import { displayedMs, promptAdjustment } from './time/commands';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
+import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore } from './tickets/workflow';
 import { openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
@@ -54,7 +55,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const repoRoot = (await currentRepo())?.root;
   const sessionsHere = () => store.list().filter((s) => s.repo === repoRoot);
-  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today());
+  // The workbench's own ticket status; trackers are only ever read.
+  const workflow = new WorkflowStore(path.join(context.globalStorageUri.fsPath, 'ticket-status.json'));
+  if (workflow.warning) {
+    void vscode.window.showWarningMessage(`Agent Workbench: ${workflow.warning}`);
+  }
+  const advance = (session: Session, event: WorkEvent): void => {
+    if (session.ticket) {
+      const key = ticketKey(session);
+      const next = statusAfter(workflow.get(key), event);
+      if (next) {
+        workflow.set(key, next);
+      }
+    }
+  };
+  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key));
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
   const focusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -90,10 +105,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const report = new TimeReportPanel({
     logDir,
-    ledgerFile: path.join(context.globalStorageUri.fsPath, 'worklog.jsonl'),
+    enteredFile: path.join(context.globalStorageUri.fsPath, 'entered.jsonl'),
     titles: reportTitles,
-    sources: ticketSources,
-    cwd: commandCwd,
   });
   const signals = new StatusSignals(sessionsHere, view, () => tree.refresh(), (s, prev, next) => tracker.statusChanged(s, prev, next));
   // Sessions added or removed: re-sync status watchers, then redraw.
@@ -118,10 +131,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const findTicket = (key: string): HubTicket | undefined => {
     const t = snapshotTicket(key);
     if (t) {
-      return { key, source: t.source, id: t.id, title: t.title, status: t.status, url: t.url, description: t.description, listed: true };
+      return { key, source: t.source, id: t.id, title: t.title, status: t.status, url: t.url, description: t.description, listed: true, workStatus: workflow.get(key) };
     }
     const remembered = store.list().find((s) => s.ticket && ticketKeyOf(s.ticket.source, s.ticket.id) === key)?.ticket;
-    return remembered && { key, source: remembered.source, id: remembered.id, title: remembered.title, url: remembered.url, listed: false };
+    return remembered && { key, source: remembered.source, id: remembered.id, title: remembered.title, url: remembered.url, listed: false, workStatus: workflow.get(key) };
   };
   const hubs = new TicketHubs({
     sessions: sessionsHere,
@@ -130,6 +143,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     findTicket,
     onMessage: (key, msg, session) => {
       switch (msg.command) {
+        case 'setStatus':
+          workflow.set(key, msg.status);
+          return tree.refresh();
         case 'newSession': {
           const t = snapshotTicket(key);
           return t ? void newSession({ ticket: t }) : undefined;
@@ -202,6 +218,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
       tracker.sessionStarted(session);
+      advance(session, 'session-started');
       changed();
       if (picked.choice.profile) {
         agents.startWith(session, picked.choice.profile);
@@ -211,6 +228,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (e) {
       void vscode.window.showErrorMessage(`Agent Workbench: ${(e as Error).message}`);
     }
+  }
+
+  function setHideDone(hide: boolean): void {
+    tree.hideDone = hide;
+    void vscode.commands.executeCommand('setContext', 'agentWorkbench.hideDone', hide);
+    tree.refresh();
   }
 
   function setFilter(text: string): void {
@@ -259,6 +282,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('agentWorkbench.clearTicketFilter', () => setFilter('')),
+
+    vscode.commands.registerCommand('agentWorkbench.setWorkStatus', async (node: WorkNode) => {
+      if (node?.kind !== 'ticket') {
+        return;
+      }
+      const key = ticketKeyOf(node.group.ticket.source, node.group.ticket.id);
+      const current = workflow.get(key);
+      const picked = await vscode.window.showQuickPick(
+        WORK_STATUSES.map((st) => ({ label: WORK_LABELS[st], description: st === current ? 'current' : undefined, status: st })),
+        { title: `Workbench status of ${node.group.ticket.id}`, placeHolder: 'Only changes the workbench; the tracker is never touched' },
+      );
+      if (picked) {
+        workflow.set(key, picked.status);
+        tree.refresh();
+      }
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.hideDoneTickets', () => setHideDone(true)),
+    vscode.commands.registerCommand('agentWorkbench.showDoneTickets', () => setHideDone(false)),
 
     hubs,
 
@@ -343,6 +385,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       tracker.registerTerminal(terminal, session);
       terminal.show();
       terminal.sendText(`git push -u origin ${session.branch} && gh pr create --fill --head ${session.branch}`, false);
+      advance(session, 'pr-created');
+      tree.refresh();
       void vscode.window.showInformationMessage(`Review the command in the "PR: ${session.id}" terminal and press Enter to push and open the pull request.`);
     }),
 
@@ -392,6 +436,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await deleteSession(store, s, { force: true });
       }
       tracker.sessionEnded(s);
+      // The ticket's last session is gone: offer to close it in the workbench (never in the tracker).
+      if (s.ticket && !store.list().some((o) => o.ticket?.source === s.ticket!.source && o.ticket.id === s.ticket!.id)) {
+        const key = ticketKey(s);
+        if (workflow.get(key) !== 'done') {
+          const done = await vscode.window.showInformationMessage(`That was the last session of ${s.ticket.id}. Mark it Done in the workbench?`, 'Mark Done', 'Keep');
+          if (done === 'Mark Done') {
+            workflow.set(key, 'done');
+          }
+        }
+      }
       changed();
     }),
 

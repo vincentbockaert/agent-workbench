@@ -1,6 +1,7 @@
 import { AgentStatus, describeSince } from '../agents/status';
 import { LineStats } from '../git/diff';
 import { Session } from '../sessions/model';
+import { WorkStatus } from '../tickets/workflow';
 import { ticketIntervals, totalsByTicket } from '../time/compute';
 import { TimeEvent } from '../time/events';
 import { buildReport, localDays, ReportDay, ReportOptions } from '../time/report';
@@ -14,6 +15,7 @@ export interface HubTicket {
   url?: string;
   description?: string;
   listed: boolean; // still in the tracker's list (a new session can be started from it)
+  workStatus?: WorkStatus; // the workbench's own status; missing = "todo"
 }
 
 export interface HubSession {

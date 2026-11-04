@@ -7,8 +7,6 @@ export interface TicketSourceConfig {
   listCmd: string;
   // Dotted path to the array of items when the command prints an object (e.g. "issues"); omit for a top-level array.
   itemsPath?: string;
-  // Optional: shell command that logs one worklog entry; it reads WB_TICKET_ID, WB_DATE, WB_MINUTES, WB_NOTE etc.
-  logCmd?: string;
   map: {
     id: string;
     title: string;

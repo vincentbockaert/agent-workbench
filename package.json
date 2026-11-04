@@ -119,6 +119,23 @@
         "icon": "$(preview)"
       },
       {
+        "command": "agentWorkbench.setWorkStatus",
+        "title": "Set Workbench Status…",
+        "category": "Agent Workbench"
+      },
+      {
+        "command": "agentWorkbench.hideDoneTickets",
+        "title": "Hide Done Tickets",
+        "category": "Agent Workbench",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "agentWorkbench.showDoneTickets",
+        "title": "Show Done Tickets",
+        "category": "Agent Workbench",
+        "icon": "$(eye)"
+      },
+      {
         "command": "agentWorkbench.filterTickets",
         "title": "Filter Tickets…",
         "category": "Agent Workbench",
@@ -177,6 +194,16 @@
           "group": "navigation@0"
         },
         {
+          "command": "agentWorkbench.hideDoneTickets",
+          "when": "view == agentWorkbench.work && !agentWorkbench.hideDone",
+          "group": "1_view"
+        },
+        {
+          "command": "agentWorkbench.showDoneTickets",
+          "when": "view == agentWorkbench.work && agentWorkbench.hideDone",
+          "group": "1_view"
+        },
+        {
           "command": "agentWorkbench.clearTicketFilter",
           "when": "view == agentWorkbench.work && agentWorkbench.filtered",
           "group": "navigation@0"
@@ -197,6 +224,11 @@
           "command": "agentWorkbench.openTicketHub",
           "when": "view == agentWorkbench.work && viewItem =~ /^ticket/",
           "group": "1_open"
+        },
+        {
+          "command": "agentWorkbench.setWorkStatus",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket/",
+          "group": "2_status"
         },
         {
           "command": "agentWorkbench.newAdhocSession",
@@ -272,6 +304,10 @@
         },
         {
           "command": "agentWorkbench.openTicketHub",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.setWorkStatus",
           "when": "false"
         },
         {
@@ -369,10 +405,6 @@
               "name": { "type": "string", "description": "Unique display name." },
               "listCmd": { "type": "string", "description": "Shell command that prints the tickets as JSON." },
               "itemsPath": { "type": "string", "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")." },
-              "logCmd": {
-                "type": "string",
-                "markdownDescription": "Optional shell command that logs one worklog entry, used by **Log to tracker…** in the time report after you confirm. It receives the values as environment variables, never pasted into the command: `WB_TICKET_ID`, `WB_TICKET_SOURCE`, `WB_TICKET`, `WB_DATE` (YYYY-MM-DD), `WB_MINUTES`, `WB_SECONDS`, `WB_NOTE`. Must exit non-zero on failure."
-              },
               "map": {
                 "type": "object",
                 "required": ["id", "title"],

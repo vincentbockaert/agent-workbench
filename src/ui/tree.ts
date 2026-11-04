@@ -10,6 +10,7 @@ import { formatDuration } from '../time/report';
 import { ticketKey, ticketKeyOf } from '../time/rules';
 import { describeAge, readSnapshot } from '../tickets/snapshot';
 import { TicketSourceConfig } from '../tickets/source';
+import { WORK_LABELS, WorkStatus } from '../tickets/workflow';
 import { filterWork, groupWork, SourceGroup, TicketGroup } from './group';
 
 export type WorkNode =
@@ -33,7 +34,11 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly sessions: () => Session[],
     private readonly status: (sessionId: string) => AgentStatus | undefined,
     private readonly today: () => Record<string, Totals>,
+    private readonly workStatus: (ticketKey: string) => WorkStatus,
   ) {}
+
+  // "Hide Done Tickets" toggle.
+  hideDone = false;
 
   private todayLabel(key: string): string | undefined {
     const ms = displayedMs(this.today()[key]);
@@ -50,7 +55,8 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
   getChildren(node?: WorkNode): WorkNode[] | Promise<WorkNode[]> {
     if (!node) {
       const sources = this.sources();
-      const model = filterWork(groupWork(sources, sources.map((cfg) => readSnapshot(this.snapshotDir, cfg.name)), this.sessions()), this.filter);
+      const grouped = groupWork(sources, sources.map((cfg) => readSnapshot(this.snapshotDir, cfg.name)), this.sessions());
+      const model = filterWork(grouped, this.filter, { workStatus: this.workStatus, hideDone: this.hideDone });
       const roots: WorkNode[] = model.sources.map((group) => ({ kind: 'source', group }));
       // Shown whenever there is anything else, so "new ad-hoc session" has a visible home.
       if (roots.length > 0 || model.other.length > 0) {
@@ -115,12 +121,15 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const { ticket, listed, sessions } = node.group;
         const state = sessions.length > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None;
         const item = new vscode.TreeItem(`${ticket.id} ${ticket.title}`, state);
-        const status = 'status' in ticket ? ticket.status : undefined;
-        item.description = [listed ? status : 'not in list', this.todayLabel(ticketKeyOf(ticket.source, ticket.id))].filter(Boolean).join(' · ');
-        item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\n${status ?? ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
+        const key = ticketKeyOf(ticket.source, ticket.id);
+        const work = this.workStatus(key);
+        // The tracker's status is read-only (last import); the workbench status is yours.
+        const tracker = listed ? ('status' in ticket && ticket.status ? `${ticket.source}: ${ticket.status}` : undefined) : 'not in list';
+        item.description = [WORK_LABELS[work], tracker, this.todayLabel(key)].filter(Boolean).join(' · ');
+        item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\nWorkbench: ${WORK_LABELS[work]}${tracker ? `  \nTracker (read-only): ${tracker}` : ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
         // A collapsed ticket still shows when one of its sessions is waiting for you.
         const waiting = sessions.some((s) => this.status(s.id)?.state === 'needs-input');
-        item.iconPath = waiting ? STATE_ICONS['needs-input'] : new vscode.ThemeIcon(listed ? 'issues' : 'issue-closed');
+        item.iconPath = waiting ? STATE_ICONS['needs-input'] : WORK_ICONS[work];
         // e.g. "ticket", "ticketWithUrl", "ticketUnlistedWithUrl": menus match on these.
         item.contextValue = `ticket${listed ? '' : 'Unlisted'}${ticket.url ? 'WithUrl' : ''}`;
         item.command = { command: 'agentWorkbench.openTicketHub', title: 'Open Ticket', arguments: [node] };
@@ -192,6 +201,13 @@ const STATE_ICONS: Record<AgentState, vscode.ThemeIcon> = {
   working: new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.blue')),
   done: new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green')),
   exited: new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground')),
+};
+
+const WORK_ICONS: Record<WorkStatus, vscode.ThemeIcon> = {
+  todo: new vscode.ThemeIcon('circle-large-outline'),
+  doing: new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.blue')),
+  review: new vscode.ThemeIcon('eye', new vscode.ThemeColor('charts.purple')),
+  done: new vscode.ThemeIcon('pass', new vscode.ThemeColor('charts.green')),
 };
 
 const STATE_SHORT: Record<AgentState, string> = {

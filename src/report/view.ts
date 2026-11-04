@@ -1,6 +1,6 @@
 import { TimeEvent } from '../time/events';
 import { BookedFigure, buildReport, formatDuration, localDays, ReportOptions, ReportRow } from '../time/report';
-import { LogStatus } from '../worklog/worklog';
+import { EntryStatus, isOpen } from '../time/booking';
 
 export type PeriodId = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth';
 export const PERIOD_IDS: PeriodId[] = ['today', 'yesterday', 'thisWeek', 'lastWeek', 'thisMonth'];
@@ -43,7 +43,7 @@ export function isoWeek(date: Date): number {
   return 1 + Math.floor((utc.getTime() - yearStart) / 86_400_000 / 7);
 }
 
-export type ReportViewRow = ReportRow & { log?: LogStatus };
+export type ReportViewRow = ReportRow & { entry?: EntryStatus };
 
 export interface ReportViewDay {
   label: string; // "Tue, Nov 3"
@@ -58,7 +58,7 @@ export interface ReportView {
   totals: { yourMs: number; agentMs: number; elapsedMs: number; bookedMs: number };
   ticketCount: number;
   eventCount: number; // events dated inside the period
-  pendingCount: number; // rows that "Log to tracker" would send
+  openCount: number; // rows "Mark as entered…" would offer
 }
 
 const dayLabel = (d: Date) => `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
@@ -79,10 +79,10 @@ export function buildReportView(
   titles: Record<string, string>,
   opts: ReportOptions,
   now: Date,
-  logState?: (row: ReportRow) => LogStatus,
+  entryState?: (row: ReportRow) => EntryStatus,
 ): ReportView {
   const days = localDays(period.from, period.to);
-  const rows: ReportViewRow[] = buildReport(events, days, titles, opts).map((r) => (logState ? { ...r, log: logState(r) } : r));
+  const rows: ReportViewRow[] = buildReport(events, days, titles, opts).map((r) => (entryState ? { ...r, entry: entryState(r) } : r));
   const viewDays: ReportViewDay[] = [];
   for (const day of days) {
     const dayRows = rows.filter((r) => r.day === day.label);
@@ -104,7 +104,7 @@ export function buildReportView(
     days: viewDays,
     totals: sum(rows),
     ticketCount: new Set(rows.map((r) => r.ticket)).size,
-    pendingCount: rows.filter((r) => isLoggable(r.log)).length,
+    openCount: rows.filter((r) => isOpen(r.entry)).length,
     eventCount: events.filter((e) => {
       const t = Date.parse(e.ts);
       return t >= start && t < end;
@@ -123,25 +123,16 @@ export type ReportMessage =
   | { command: 'setBooked'; booked: BookedFigure }
   | { command: 'setRounding'; roundToMinutes: number }
   | { command: 'copyCsv' }
-  | { command: 'logWork' };
+  | { command: 'markEntered' };
 
-// Not logged yet, or more time booked since it was logged.
-export function isLoggable(log: LogStatus | undefined): boolean {
-  return log?.kind === 'pending' || (log?.kind === 'changed' && log.minutes > log.loggedMinutes);
-}
-
-function logCell(log: LogStatus | undefined): string {
-  switch (log?.kind) {
-    case 'logged':
-      return '<span class="ok">✓ logged</span>';
+function entryCell(entry: EntryStatus | undefined): string {
+  switch (entry?.kind) {
+    case 'entered':
+      return '<span class="ok">✓ entered</span>';
     case 'changed':
-      return `<span class="warn">logged ${formatDuration(log.loggedMinutes * 60_000)}, now ${formatDuration(log.minutes * 60_000)}</span>`;
-    case 'pending':
+      return `<span class="warn">entered ${formatDuration(entry.enteredMinutes * 60_000)}, now ${formatDuration(entry.minutes * 60_000)}</span>`;
+    case 'open':
       return '<span class="muted">not yet</span>';
-    case 'no-command':
-      return '<span class="muted">no log command</span>';
-    case 'no-ticket':
-      return '<span class="muted">no ticket</span>';
     default:
       return '';
   }
@@ -164,7 +155,7 @@ export function renderTimeReport(view: ReportView, state: ReportState, nonce: st
         d.rows
           .map(
             (r) =>
-              `<tr><td class="mono">${esc(r.ticket)}</td><td>${esc(r.title)}</td><td class="num">${f(r.yourMs)}</td><td class="num">${f(r.agentMs)}</td><td class="num">${f(r.elapsedMs)}</td><td class="num booked">${f(r.bookedMs)}</td><td>${logCell(r.log)}</td></tr>`,
+              `<tr><td class="mono">${esc(r.ticket)}</td><td>${esc(r.title)}</td><td class="num">${f(r.yourMs)}</td><td class="num">${f(r.agentMs)}</td><td class="num">${f(r.elapsedMs)}</td><td class="num booked">${f(r.bookedMs)}</td><td>${entryCell(r.entry)}</td></tr>`,
           )
           .join('') +
         `<tr class="subtotal"><td></td><td class="muted">Day total</td><td class="num">${f(d.totals.yourMs)}</td><td class="num">${f(d.totals.agentMs)}</td><td class="num">${f(d.totals.elapsedMs)}</td><td class="num booked">${f(d.totals.bookedMs)}</td><td></td></tr>`,
@@ -175,7 +166,7 @@ export function renderTimeReport(view: ReportView, state: ReportState, nonce: st
     view.days.length === 0
       ? '<p class="muted">No time recorded in this period.</p>'
       : `<div class="table"><table>
-<thead><tr><th>Ticket</th><th>Title</th><th class="num">You</th><th class="num">Agents</th><th class="num">Elapsed</th><th class="num">Booked</th><th>Logged</th></tr></thead>
+<thead><tr><th>Ticket</th><th>Title</th><th class="num">You</th><th class="num">Agents</th><th class="num">Elapsed</th><th class="num">Booked</th><th>Entered</th></tr></thead>
 <tbody>${body}</tbody>
 <tfoot><tr><td>Total</td><td></td><td class="num you">${f(t.yourMs)}</td><td class="num agents">${f(t.agentMs)}</td><td class="num">${f(t.elapsedMs)}</td><td class="num booked">${f(t.bookedMs)}</td><td></td></tr></tfoot>
 </table></div>`;
@@ -226,7 +217,7 @@ tfoot td{font-weight:600;border-top:2px solid var(--vscode-panel-border)}
   </div>
   <div class="actions">
     <button id="copy">Copy as CSV</button>
-    <button id="log" class="primary"${view.pendingCount > 0 ? '' : ' disabled title="Nothing to log: every entry is logged or has no log command"'}>Log to tracker… (${view.pendingCount})</button>
+    <button id="enter" class="primary"${view.openCount > 0 ? '' : ' disabled title="Everything in this period is marked as entered"'}>Mark as entered… (${view.openCount})</button>
   </div>
 </header>
 <div class="controls">
@@ -244,7 +235,7 @@ for (const b of document.querySelectorAll('[data-period]')) {
 document.getElementById('booked').addEventListener('change', (e) => vscode.postMessage({ command: 'setBooked', booked: e.target.value }));
 document.getElementById('rounding').addEventListener('change', (e) => vscode.postMessage({ command: 'setRounding', roundToMinutes: e.target.value }));
 document.getElementById('copy').addEventListener('click', () => vscode.postMessage({ command: 'copyCsv' }));
-document.getElementById('log').addEventListener('click', () => vscode.postMessage({ command: 'logWork' }));
+document.getElementById('enter').addEventListener('click', () => vscode.postMessage({ command: 'markEntered' }));
 </script>
 </body>
 </html>`;
@@ -266,8 +257,8 @@ export function parseReportMessage(msg: unknown): ReportMessage | undefined {
     }
     case 'copyCsv':
       return { command: 'copyCsv' };
-    case 'logWork':
-      return { command: 'logWork' };
+    case 'markEntered':
+      return { command: 'markEntered' };
     default:
       return undefined;
   }
