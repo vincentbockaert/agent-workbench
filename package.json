@@ -35,7 +35,7 @@
     "viewsWelcome": [
       {
         "view": "agentWorkbench.work",
-        "contents": "No ticket sources configured.\nA source is a command that prints JSON, such as `gh issue list --json number,title,state,url`.\n[Configure ticket sources](command:workbench.action.openSettingsJson)"
+        "contents": "No ticket sources configured.\nA source is a command that prints JSON, such as `gh issue list --json number,title,state,url`.\n[Configure ticket sources](command:workbench.action.openSettingsJson)\n[New Ad-hoc Session](command:agentWorkbench.newAdhocSession)"
       }
     ],
     "commands": [
@@ -50,26 +50,101 @@
         "title": "Open in Browser",
         "category": "Agent Workbench",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "agentWorkbench.newSessionForTicket",
+        "title": "Work on This in New Session",
+        "category": "Agent Workbench",
+        "icon": "$(add)"
+      },
+      {
+        "command": "agentWorkbench.newAdhocSession",
+        "title": "New Ad-hoc Session",
+        "category": "Agent Workbench",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "agentWorkbench.openSessionShell",
+        "title": "Open Shell in Session",
+        "category": "Agent Workbench",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "agentWorkbench.openSessionTask",
+        "title": "Open Task",
+        "category": "Agent Workbench"
+      },
+      {
+        "command": "agentWorkbench.deleteSession",
+        "title": "Delete Session",
+        "category": "Agent Workbench",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
       "view/title": [
         {
+          "command": "agentWorkbench.newAdhocSession",
+          "when": "view == agentWorkbench.work",
+          "group": "navigation@1"
+        },
+        {
           "command": "agentWorkbench.refreshTickets",
           "when": "view == agentWorkbench.work",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
+          "command": "agentWorkbench.newSessionForTicket",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket(WithUrl)?$/",
+          "group": "inline@1"
+        },
+        {
           "command": "agentWorkbench.openTicketInBrowser",
-          "when": "view == agentWorkbench.work && viewItem == ticketWithUrl",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket.*WithUrl$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "agentWorkbench.newAdhocSession",
+          "when": "view == agentWorkbench.work && viewItem == other",
           "group": "inline"
+        },
+        {
+          "command": "agentWorkbench.openSessionShell",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "inline@1"
+        },
+        {
+          "command": "agentWorkbench.openSessionTask",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "1_open"
+        },
+        {
+          "command": "agentWorkbench.deleteSession",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "9_delete"
         }
       ],
       "commandPalette": [
         {
           "command": "agentWorkbench.openTicketInBrowser",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.newSessionForTicket",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.openSessionShell",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.openSessionTask",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.deleteSession",
           "when": "false"
         }
       ]

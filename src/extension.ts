@@ -2,8 +2,12 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { WORK_VIEW_ID } from './constants';
+import { git } from './git/git';
+import { deleteSession, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
+import { Session } from './sessions/model';
+import { SessionStore } from './sessions/store';
 import { refreshSource } from './tickets/snapshot';
-import { TicketSourceConfig } from './tickets/source';
+import { Ticket, TicketSourceConfig } from './tickets/source';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
 function ticketSources(): TicketSourceConfig[] {
@@ -15,9 +19,51 @@ function commandCwd(): string {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+// The repo of the first workspace folder; sessions of other repos are hidden in this window.
+async function currentRepo(): Promise<{ root: string; branch: string } | undefined> {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!folder) {
+    return undefined;
+  }
+  try {
+    const root = (await git(folder, ['rev-parse', '--show-toplevel'])).trim();
+    const branch = (await git(root, ['branch', '--show-current'])).trim() || 'HEAD';
+    return { root, branch };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const snapshotDir = path.join(context.globalStorageUri.fsPath, 'tickets');
-  const tree = new WorkTreeProvider(ticketSources, snapshotDir);
+  const store = new SessionStore(path.join(context.globalStorageUri.fsPath, 'sessions.json'));
+  if (store.warning) {
+    void vscode.window.showWarningMessage(`Agent Workbench: ${store.warning}`);
+  }
+  const repoRoot = (await currentRepo())?.root;
+  const tree = new WorkTreeProvider(ticketSources, snapshotDir, () => store.list().filter((s) => s.repo === repoRoot));
+
+  async function newSession(opts: { ticket?: Ticket; adhoc?: { title: string; description: string } }): Promise<void> {
+    const repo = await currentRepo();
+    if (!repo) {
+      void vscode.window.showErrorMessage('Agent Workbench: open a folder inside a git repository to start sessions.');
+      return;
+    }
+    try {
+      const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
+      tree.refresh();
+      const choice = await vscode.window.showInformationMessage(`Session ${session.id} created on ${session.branch}.`, 'Open Shell');
+      if (choice === 'Open Shell') {
+        openShell(session);
+      }
+    } catch (e) {
+      void vscode.window.showErrorMessage(`Agent Workbench: ${(e as Error).message}`);
+    }
+  }
+
+  function openShell(session: Session): void {
+    vscode.window.createTerminal({ name: `wb: ${session.id}`, cwd: session.worktree }).show();
+  }
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider(WORK_VIEW_ID, tree),
@@ -31,9 +77,69 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
 
     vscode.commands.registerCommand('agentWorkbench.openTicketInBrowser', (node: WorkNode) => {
-      if (node?.kind === 'ticket' && node.ticket.url) {
-        void vscode.env.openExternal(vscode.Uri.parse(node.ticket.url));
+      if (node?.kind === 'ticket' && node.group.ticket.url) {
+        void vscode.env.openExternal(vscode.Uri.parse(node.group.ticket.url));
       }
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.newSessionForTicket', (node: WorkNode) => {
+      if (node?.kind === 'ticket' && node.group.listed) {
+        return newSession({ ticket: node.group.ticket as Ticket });
+      }
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.newAdhocSession', async () => {
+      const title = await vscode.window.showInputBox({ prompt: 'Ad-hoc session title', placeHolder: 'Try the new parser' });
+      if (!title?.trim()) {
+        return;
+      }
+      const description = await vscode.window.showInputBox({ prompt: 'What should the agent do? (optional)' });
+      if (description === undefined) {
+        return;
+      }
+      return newSession({ adhoc: { title: title.trim(), description } });
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.openSessionShell', (node: WorkNode) => {
+      if (node?.kind === 'session') {
+        openShell(node.session);
+      }
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.openSessionTask', async (node: WorkNode) => {
+      if (node?.kind === 'session') {
+        const file = vscode.Uri.file(path.join(node.session.worktree, WORKBENCH_DIR, 'TASK.md'));
+        await vscode.window.showTextDocument(file, { preview: true });
+      }
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.deleteSession', async (node: WorkNode) => {
+      if (node?.kind !== 'session') {
+        return;
+      }
+      const s = node.session;
+      const ok = await vscode.window.showWarningMessage(
+        `Delete session ${s.id}? Its worktree folder is removed; branch ${s.branch} is kept.`,
+        { modal: true },
+        'Delete',
+      );
+      if (ok !== 'Delete') {
+        return;
+      }
+      try {
+        await deleteSession(store, s);
+      } catch (e) {
+        const force = await vscode.window.showWarningMessage(
+          `${s.id} has uncommitted changes that will be lost.`,
+          { modal: true, detail: (e as Error).message },
+          'Delete Anyway',
+        );
+        if (force !== 'Delete Anyway') {
+          return;
+        }
+        await deleteSession(store, s, { force: true });
+      }
+      tree.refresh();
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
