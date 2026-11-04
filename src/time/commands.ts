@@ -1,9 +1,6 @@
 import * as vscode from 'vscode';
-import { Session } from '../sessions/model';
 import { Totals } from './compute';
-import { readEvents } from './log';
-import { BookedFigure, buildReport, localDays, renderCsv, renderMarkdown, ReportOptions } from './report';
-import { ticketKey } from './rules';
+import { BookedFigure, ReportOptions } from './report';
 import { idleMs } from './tracker';
 
 export function reportOptions(): ReportOptions {
@@ -22,47 +19,6 @@ export function displayedMs(totals: Totals | undefined): number {
   }
   const figure = reportOptions().booked;
   return figure === 'your' ? totals.yourMs : figure === 'agent' ? totals.agentMs : totals.elapsedMs;
-}
-
-function periods(now: Date): { label: string; from: Date; to: Date }[] {
-  const day = (offset: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
-  const sinceMonday = (now.getDay() + 6) % 7;
-  return [
-    { label: 'Today', from: day(0), to: day(0) },
-    { label: 'Yesterday', from: day(-1), to: day(-1) },
-    { label: 'This week', from: day(-sinceMonday), to: day(0) },
-    { label: 'Last week', from: day(-sinceMonday - 7), to: day(-sinceMonday - 1) },
-    { label: 'This month', from: new Date(now.getFullYear(), now.getMonth(), 1), to: day(0) },
-  ];
-}
-
-export async function showTimeReport(logDir: string, sessions: Session[]): Promise<void> {
-  const period = await vscode.window.showQuickPick(periods(new Date()), { placeHolder: 'Report period' });
-  if (!period) {
-    return;
-  }
-  const format = await vscode.window.showQuickPick(['Open as table', 'Copy as CSV'], { placeHolder: 'Output' });
-  if (!format) {
-    return;
-  }
-  const days = localDays(period.from, period.to);
-  const { events, skipped } = readEvents(logDir, { start: days[0].start, end: days[days.length - 1].end });
-  const titles: Record<string, string> = {};
-  for (const s of sessions) {
-    titles[ticketKey(s)] = s.ticket?.title ?? s.title ?? s.id;
-  }
-  const opts = reportOptions();
-  const rows = buildReport(events, days, titles, opts);
-  if (skipped > 0) {
-    void vscode.window.showWarningMessage(`Agent Workbench: ${skipped} unreadable line(s) in the time log were skipped.`);
-  }
-  if (format === 'Copy as CSV') {
-    await vscode.env.clipboard.writeText(renderCsv(rows));
-    void vscode.window.showInformationMessage(`Time report (${period.label.toLowerCase()}) copied as CSV: ${rows.length} row(s).`);
-  } else {
-    const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: renderMarkdown(rows, opts) });
-    await vscode.window.showTextDocument(doc, { preview: false });
-  }
 }
 
 // Asks for a correction in minutes (negative to subtract) and an optional note.

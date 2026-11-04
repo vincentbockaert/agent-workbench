@@ -7,13 +7,14 @@ import { agentProfiles, AgentTerminals } from './agents/terminals';
 import { WORK_VIEW_ID } from './constants';
 import { HubTicket } from './hub/model';
 import { TicketHubs } from './hub/panel';
+import { TimeReportPanel } from './report/panel';
 import { git } from './git/git';
 import { deleteSession, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshSource } from './tickets/snapshot';
 import { Ticket, TicketSourceConfig } from './tickets/source';
-import { displayedMs, promptAdjustment, showTimeReport } from './time/commands';
+import { displayedMs, promptAdjustment } from './time/commands';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
@@ -72,7 +73,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const tracker = new TimeTracker(logDir, sessionsHere, () => {
     tree.refresh();
     updateFocusBar();
+    report.refresh();
   });
+  // Ticket titles for the report: from every session (all repos) and the listed tickets.
+  const reportTitles = (): Record<string, string> => {
+    const titles: Record<string, string> = {};
+    for (const s of store.list()) {
+      titles[ticketKey(s)] = s.ticket?.title ?? s.title ?? s.id;
+    }
+    for (const cfg of ticketSources()) {
+      for (const t of readSnapshot(snapshotDir, cfg.name)?.tickets ?? []) {
+        titles[ticketKeyOf(t.source, t.id)] = t.title;
+      }
+    }
+    return titles;
+  };
+  const report = new TimeReportPanel(logDir, reportTitles);
   const signals = new StatusSignals(sessionsHere, view, () => tree.refresh(), (s, prev, next) => tracker.statusChanged(s, prev, next));
   // Sessions added or removed: re-sync status watchers, then redraw.
   const changed = (): void => {
@@ -246,7 +262,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
 
-    vscode.commands.registerCommand('agentWorkbench.timeReport', () => guarded(() => showTimeReport(logDir, store.list()))),
+    report,
+    vscode.commands.registerCommand('agentWorkbench.timeReport', () => report.open()),
 
     vscode.commands.registerCommand('agentWorkbench.adjustTime', async (node: WorkNode) => {
       if (node?.kind === 'session') {
