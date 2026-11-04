@@ -1,0 +1,7 @@
+# Only the bundle, the hook script, the icon, README and the manifest go into the .vsix.
+**
+!dist/extension.js
+!bin/wb.js
+!media/**
+!README.md
+!package.json

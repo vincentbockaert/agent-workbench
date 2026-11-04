@@ -1,0 +1,4 @@
+[
+  { "id": "65a1f0c2e4b0a1b2c3d4e5f6", "idShort": 7, "name": "Write a README for the greeter", "desc": "Cover install and usage.", "shortUrl": "https://trello.com/c/AbCd1234" },
+  { "id": "65a1f0c2e4b0a1b2c3d4e5f7", "idShort": 8, "name": "Add --verbose flag", "desc": "", "shortUrl": "https://trello.com/c/EfGh5678" }
+]

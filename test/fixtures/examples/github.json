@@ -1,0 +1,4 @@
+[
+  { "number": 42, "title": "Crash on empty config", "state": "OPEN", "url": "https://github.com/acme/web/issues/42", "body": "Steps:\n1. run with {}\n2. crash" },
+  { "number": 57, "title": "Dark mode toggle", "state": "OPEN", "url": "https://github.com/acme/web/issues/57", "body": "" }
+]

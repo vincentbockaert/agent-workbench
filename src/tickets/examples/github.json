@@ -1,5 +1,5 @@
 {
   "name": "GitHub",
-  "listCmd": "gh issue list --state open --limit 100 --json number,title,state,url",
-  "map": { "id": "number", "title": "title", "status": "state", "url": "url" }
+  "listCmd": "gh issue list --state open --limit 100 --json number,title,state,url,body",
+  "map": { "id": "number", "title": "title", "status": "state", "url": "url", "description": "body" }
 }

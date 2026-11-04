@@ -1,0 +1,151 @@
+# Agent Workbench
+
+A VS Code control room for agentic coding, with **tickets as the root of the work**:
+
+- Tickets from any tracker (GitHub, GitLab, Jira, Trello, …) are imported **read-only**; the workbench never changes a ticket.
+- "Work on this" creates an isolated **git worktree + branch** per session and starts an agent (Claude Code, Codex, or any CLI agent you configure). Your own working tree and open files are never touched.
+- Sessions run in parallel and **signal when they need you**: orange bell, view badge, status bar, notification.
+- Each session shows its **changed files** with side-by-side diffs against where it started, and can be resumed, finished or deleted.
+- Every ticket has a local **workbench status** (To do → Doing → Review → Done), next to the tracker's read-only status.
+- Time on tickets is tracked **deterministically** from an append-only event log: your time, agent time and elapsed time, with a weekly report to enter into your timesheet.
+
+Local only: the extension is `"private"` and not published.
+
+## Install
+
+```bash
+npm install
+npm run package
+code --install-extension agent-workbench-0.0.1.vsix
+```
+
+Or open this folder in VS Code and press F5 to run it in a development window.
+
+Requirements: Git, Node.js on `PATH` (agent hooks call `bin/wb.js` with `node`), and the CLIs of your tracker and agents.
+
+## Quick start
+
+1. Open a git repository in VS Code and click the **Agent Workbench** icon in the activity bar.
+2. Add a ticket source to your settings (`agentWorkbench.ticketSources`), for example GitHub via `gh`, then click **Refresh**.
+3. Click ＋ on a ticket ("Work on this in new session"), pick an agent, and watch the session appear under the ticket.
+4. Click a ticket to open its **ticket tab**; click the clock for the **time report**.
+
+## Ticket sources
+
+A source is configuration, not code: a shell command that prints JSON, plus a map from ticket fields to dotted paths in each item. The command runs in your workspace folder and uses the CLI's own login.
+
+```json
+"agentWorkbench.ticketSources": [
+  {
+    "name": "GitHub",
+    "listCmd": "gh issue list --state open --limit 100 --json number,title,state,url,body",
+    "map": { "id": "number", "title": "title", "status": "state", "url": "url", "description": "body" }
+  }
+]
+```
+
+- `map.id` and `map.title` are required; `status`, `url` and `description` are optional.
+- `itemsPath` points at the array when the command prints an object (e.g. Jira's `"issues"`).
+- Refreshing saves a snapshot; the view always renders from snapshots, so it works offline.
+
+Ready-made examples, each tested against sample output, are in `src/tickets/examples` in this repository (copy one into your settings):
+
+| File | Needs | Notes |
+|---|---|---|
+| `github.json` | `gh` (logged in) | Verified against real `gh` output. |
+| `gitlab.json` | `glab` (logged in) | Uses `glab issue list --output json`; the id is the project-level `iid`. |
+| `jira-acli.json` | Atlassian CLI `acli` (logged in) | Assumes `--json` prints Jira's REST issue shape (`key`, `fields.summary`, `fields.status.name`); check your acli version's output. |
+| `jira-rest.json` | `curl`, env `JIRA_EMAIL`, `JIRA_API_TOKEN` | Replace `YOUR-SITE`. Jira descriptions are rich-text objects, so none is mapped. |
+| `trello.json` | `curl`, env `TRELLO_KEY`, `TRELLO_TOKEN` | Replace `YOUR-LIST-ID`. Trello has no status field. |
+
+**Windows:** commands run in `cmd.exe`, so the `curl` examples' `$JIRA_EMAIL` style variables must be written `%JIRA_EMAIL%` there. These variables are your own settings; no ticket text is ever put into a command.
+
+## Agents
+
+Built in: `claude` (Claude Code) and `codex`. Add or override profiles in `agentWorkbench.agents`:
+
+```json
+"agentWorkbench.agents": [
+  { "id": "aider", "label": "Aider", "startCmd": "aider --message-file ${promptFile}" }
+]
+```
+
+Placeholders: `${promptFile}` (the relative path `.workbench/TASK.md`), `${sessionId}`, `${branch}`. Commands run in the session's worktree, so "continue the latest conversation here" (`claude --continue`) resumes exactly that session.
+
+`agentWorkbench.defaultAgent` picks the preselected agent; with `agentWorkbench.startAgentOnCreate` off, "No agent — just the worktree" is preselected.
+
+### "Needs your input" signals
+
+Agents report their state through `bin/wb.js`, which writes `.workbench/status.json` in the session (from `$WB_STATUS_FILE`, set in each session terminal):
+
+- **Claude Code:** set up automatically. Opening an agent writes hooks into the worktree's `.claude/settings.local.json` (git-excluded).
+- **Codex:** add once to `~/.codex/config.toml`: `notify = ["node", "<extension folder>/bin/wb.js", "hook", "codex"]`. Codex reports finished turns only, not approval prompts.
+- **Anything else:** call `node <extension folder>/bin/wb.js status needs-input "message"` (states: `working`, `needs-input`, `done`, `exited`).
+- Without hooks, the terminal's start and end still give "working" and "stopped".
+
+Outside a workbench session `wb.js` does nothing, so global hooks are harmless.
+
+## Sessions
+
+- **Work on this** (ticket) or **New ad-hoc session** creates `wb/<source>-<id>-<n>` in `<repo>.worktrees/<…>` next to your repository, writes `.workbench/TASK.md` from the ticket, and starts the chosen agent.
+- **Open Agent** focuses the agent terminal, resumes the last agent, or starts the default one. **Open Shell** opens a terminal in the worktree.
+- Expand a session to see its **changed files**; click one for a diff against the commit the session started from.
+- **Create Pull Request** types `git push … && gh pr create …` into a terminal for you to review; it never runs it for you.
+- **Finish Session** removes the worktree and keeps the branch; it refuses while there are uncommitted changes. **Delete Session** can discard them after asking.
+
+## Workbench status
+
+To do → Doing → Review → Done, stored locally per ticket. It moves on its own where the signal is unambiguous:
+
+- starting a session: **Doing**
+- Create Pull Request: **Review** (never reopens Done)
+- the ticket's last session finished or deleted: asks whether to mark it **Done**
+
+Change it any time from the ticket's context menu or the ticket tab. The tracker's status is shown next to it, read-only, as of the last refresh. The filter matches both; **Hide Done Tickets** is in the view's `…` menu.
+
+## Time tracking
+
+All time comes from an append-only log (`timelog/YYYY-MM.jsonl`); totals are recomputed from it, so the same log always gives the same numbers.
+
+- **Agent time:** from "working" until the agent waits, finishes or exits.
+- **Your time (strict):** only while you do something in a session (edit, select or scroll in its files, switch to its terminal, run a command in its shell, submit or answer a prompt). A gap longer than `agentWorkbench.time.idleMinutes` (5) ends the interval at your last activity.
+- **Elapsed:** you or an agent; parallel sessions on one ticket count once.
+- Intervals left open (e.g. a crash) close at the last recorded event, never "now".
+- **Adjust Time…** adds corrections (e.g. a call) as new events; nothing is ever edited.
+
+`agentWorkbench.time.bookedFigure` chooses what is booked (elapsed, your or agent time); `agentWorkbench.time.roundToMinutes` rounds it up per ticket per day in reports only.
+
+### Time report
+
+The clock opens the **Time Report** tab: pick a period, the booked figure and rounding; **Copy as CSV** for your timesheet. After you enter time in your tracker or timesheet yourself, **Mark as entered…** records that locally, so the report shows what is still open (and how much more, if you kept working after entering it).
+
+## Where things are stored
+
+In VS Code's global storage for the extension (`…/globalStorage/local.agent-workbench/`):
+
+| File | Contents |
+|---|---|
+| `sessions.json` | Sessions (repo, worktree, branch, ticket, agent) |
+| `tickets/<source>.json` | Ticket snapshots from the last refresh |
+| `ticket-status.json` | Workbench status per ticket |
+| `timelog/YYYY-MM.jsonl` | Time events (append-only) |
+| `entered.jsonl` | What you marked as entered (append-only) |
+
+Per session, in its worktree (git-excluded): `.workbench/TASK.md`, `.workbench/status.json`, and for Claude `.claude/settings.local.json`.
+
+## Development
+
+```bash
+npm run build        # bundle to dist/
+npm run typecheck
+npm test             # unit tests (fast, real git in temp folders)
+npm run test:vscode  # integration tests in a real VS Code instance
+npm run package      # build the .vsix
+```
+
+## Known limits
+
+- Your time cannot see typing inside an agent's terminal; it counts from submitting or answering a prompt.
+- Codex has no approval hook, so it never shows "needs input".
+- Ticket tabs and the time report redraw fully when their numbers change, which resets scrolling.
+- "Mark as entered" cannot be undone from the UI yet.

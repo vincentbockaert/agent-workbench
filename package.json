@@ -102,6 +102,12 @@
         "category": "Agent Workbench"
       },
       {
+        "command": "agentWorkbench.finishSession",
+        "title": "Finish Session",
+        "category": "Agent Workbench",
+        "icon": "$(check-all)"
+      },
+      {
         "command": "agentWorkbench.deleteSession",
         "title": "Delete Session",
         "category": "Agent Workbench",
@@ -276,9 +282,14 @@
           "group": "5_time"
         },
         {
+          "command": "agentWorkbench.finishSession",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "9_delete@1"
+        },
+        {
           "command": "agentWorkbench.deleteSession",
           "when": "view == agentWorkbench.work && viewItem == session",
-          "group": "9_delete"
+          "group": "9_delete@2"
         }
       ],
       "commandPalette": [
@@ -296,6 +307,10 @@
         },
         {
           "command": "agentWorkbench.createPullRequest",
+          "when": "agentWorkbench.inSession"
+        },
+        {
+          "command": "agentWorkbench.finishSession",
           "when": "agentWorkbench.inSession"
         },
         {
@@ -345,13 +360,27 @@
           "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one. Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`.",
           "items": {
             "type": "object",
-            "required": ["id", "label", "startCmd"],
+            "required": [
+              "id",
+              "label",
+              "startCmd"
+            ],
             "additionalProperties": false,
             "properties": {
-              "id": { "type": "string" },
-              "label": { "type": "string" },
-              "startCmd": { "type": "string", "description": "Starts a new agent conversation, e.g. `aider --message-file ${promptFile}`." },
-              "resumeCmd": { "type": "string", "description": "Continues the latest conversation in this worktree, e.g. `claude --continue`." }
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "startCmd": {
+                "type": "string",
+                "description": "Starts a new agent conversation, e.g. `aider --message-file ${promptFile}`."
+              },
+              "resumeCmd": {
+                "type": "string",
+                "description": "Continues the latest conversation in this worktree, e.g. `claude --continue`."
+              }
             }
           }
         },
@@ -378,7 +407,11 @@
         },
         "agentWorkbench.time.bookedFigure": {
           "type": "string",
-          "enum": ["elapsed", "your", "agent"],
+          "enum": [
+            "elapsed",
+            "your",
+            "agent"
+          ],
           "default": "elapsed",
           "enumDescriptions": [
             "Time you or an agent worked on the ticket (overlaps counted once).",
@@ -399,22 +432,49 @@
           "markdownDescription": "Ticket sources. Each is a shell command that prints JSON (run in the workspace folder) plus a map from ticket fields to dotted paths in each item. Example: `{ \"name\": \"GitHub\", \"listCmd\": \"gh issue list --json number,title,state,url\", \"map\": { \"id\": \"number\", \"title\": \"title\", \"status\": \"state\", \"url\": \"url\" } }`",
           "items": {
             "type": "object",
-            "required": ["name", "listCmd", "map"],
+            "required": [
+              "name",
+              "listCmd",
+              "map"
+            ],
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string", "description": "Unique display name." },
-              "listCmd": { "type": "string", "description": "Shell command that prints the tickets as JSON." },
-              "itemsPath": { "type": "string", "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")." },
+              "name": {
+                "type": "string",
+                "description": "Unique display name."
+              },
+              "listCmd": {
+                "type": "string",
+                "description": "Shell command that prints the tickets as JSON."
+              },
+              "itemsPath": {
+                "type": "string",
+                "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")."
+              },
               "map": {
                 "type": "object",
-                "required": ["id", "title"],
+                "required": [
+                  "id",
+                  "title"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "id": { "type": "string" },
-                  "title": { "type": "string" },
-                  "status": { "type": "string" },
-                  "url": { "type": "string" },
-                  "description": { "type": "string", "description": "Dotted path to the ticket's body text, shown in the ticket hub." }
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Dotted path to the ticket's body text, shown in the ticket hub."
+                  }
                 }
               }
             }
@@ -427,7 +487,8 @@
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",
     "typecheck": "tsc --noEmit",
     "test": "mocha",
-    "test:vscode": "npm run build && vscode-test"
+    "test:vscode": "npm run build && vscode-test",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license"
   },
   "devDependencies": {
     "@types/mocha": "10.0.10",
@@ -435,6 +496,7 @@
     "@types/vscode": "1.93.0",
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.1.0",
     "esbuild": "0.28.2",
     "mocha": "12.0.3",
     "tsx": "4.23.15",

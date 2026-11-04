@@ -9,7 +9,7 @@ import { HubTicket } from './hub/model';
 import { TicketHubs } from './hub/panel';
 import { TimeReportPanel } from './report/panel';
 import { git } from './git/git';
-import { deleteSession, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
+import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshSource } from './tickets/snapshot';
@@ -230,6 +230,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  // After a ticket's last session ends: offer to close it in the workbench (never in the tracker).
+  async function offerDone(ended: Session): Promise<void> {
+    if (!ended.ticket || hasOtherTicketSessions(store.list(), ended)) {
+      return;
+    }
+    const key = ticketKey(ended);
+    if (workflow.get(key) === 'done') {
+      return;
+    }
+    const answer = await vscode.window.showInformationMessage(`That was the last session of ${ended.ticket.id}. Mark it Done in the workbench?`, 'Mark Done', 'Keep');
+    if (answer === 'Mark Done') {
+      workflow.set(key, 'done');
+    }
+  }
+
   function setHideDone(hide: boolean): void {
     tree.hideDone = hide;
     void vscode.commands.executeCommand('setContext', 'agentWorkbench.hideDone', hide);
@@ -436,16 +451,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await deleteSession(store, s, { force: true });
       }
       tracker.sessionEnded(s);
-      // The ticket's last session is gone: offer to close it in the workbench (never in the tracker).
-      if (s.ticket && !store.list().some((o) => o.ticket?.source === s.ticket!.source && o.ticket.id === s.ticket!.id)) {
-        const key = ticketKey(s);
-        if (workflow.get(key) !== 'done') {
-          const done = await vscode.window.showInformationMessage(`That was the last session of ${s.ticket.id}. Mark it Done in the workbench?`, 'Mark Done', 'Keep');
-          if (done === 'Mark Done') {
-            workflow.set(key, 'done');
-          }
-        }
+      await offerDone(s);
+      changed();
+    }),
+
+    // Finishing = the work is done and committed: refuses to throw away uncommitted changes (Delete can).
+    vscode.commands.registerCommand('agentWorkbench.finishSession', async (node?: WorkNode) => {
+      const s = sessionOf(node);
+      if (!s) {
+        return;
       }
+      try {
+        await deleteSession(store, s);
+      } catch (e) {
+        void vscode.window.showWarningMessage(`${s.id} has uncommitted changes. Commit them in the session first, or use Delete Session to discard them.`, {
+          modal: true,
+          detail: (e as Error).message,
+        });
+        return;
+      }
+      tracker.sessionEnded(s);
+      void vscode.window.showInformationMessage(`Finished ${s.id}: worktree removed, branch ${s.branch} kept.`);
+      await offerDone(s);
       changed();
     }),
 

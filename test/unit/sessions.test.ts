@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { git } from '../../src/git/git';
 import { changedFiles } from '../../src/git/worktree';
-import { deleteSession, startSession } from '../../src/sessions/lifecycle';
+import { deleteSession, hasOtherTicketSessions, startSession } from '../../src/sessions/lifecycle';
 import { Session, sessionSlugBase } from '../../src/sessions/model';
 import { SessionStore } from '../../src/sessions/store';
 import { renderAdhocTask, renderTicketTask } from '../../src/sessions/task';
@@ -218,5 +218,35 @@ describe('sessions', function () {
       const tickets = groupWork([gh], [undefined], [s]).sources[0].tickets;
       assert.deepEqual(tickets.map((g) => [g.ticket.id, g.listed]), [['42', false]]);
     });
+  });
+});
+
+describe('hasOtherTicketSessions', () => {
+  const s = (id: string, ticketId?: string, source = 'Jira'): Session => ({
+    id,
+    repo: '/r',
+    worktree: `/w/${id}`,
+    branch: `wb/${id}`,
+    baseRef: 'main',
+    createdAt: 't',
+    ...(ticketId ? { ticket: { source, id: ticketId, title: 'T' } } : { title: 'Ad-hoc' }),
+  });
+
+  it('is false when the session was the ticket\'s only one (the removed session itself does not count)', () => {
+    const one = s('jira-p-1-1', 'P-1');
+    assert.equal(hasOtherTicketSessions([one], one), false);
+    assert.equal(hasOtherTicketSessions([], one), false);
+  });
+
+  it('is true while another session of the same ticket remains', () => {
+    const a = s('jira-p-1-1', 'P-1');
+    assert.equal(hasOtherTicketSessions([a, s('jira-p-1-2', 'P-1')], a), true);
+  });
+
+  it('does not confuse tickets with the same id in another source, or ad-hoc sessions', () => {
+    const a = s('jira-p-1-1', 'P-1');
+    assert.equal(hasOtherTicketSessions([a, s('gh-p-1-1', 'P-1', 'GitHub'), s('adhoc-x-1')], a), false);
+    const adhoc = s('adhoc-x-1');
+    assert.equal(hasOtherTicketSessions([adhoc, s('adhoc-y-1')], adhoc), false);
   });
 });

@@ -1,0 +1,5 @@
+{
+  "name": "Jira",
+  "listCmd": "acli jira workitem search --jql \"assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC\" --json",
+  "map": { "id": "key", "title": "fields.summary", "status": "fields.status.name" }
+}

@@ -1,0 +1,4 @@
+[
+  { "id": 9001, "iid": 12, "title": "Rate-limit webhooks", "state": "opened", "web_url": "https://gitlab.com/acme/api/-/issues/12", "description": "Throttle to 10/s per tenant." },
+  { "id": 9002, "iid": 13, "title": "Retry failed deliveries", "state": "opened", "web_url": "https://gitlab.com/acme/api/-/issues/13", "description": null }
+]

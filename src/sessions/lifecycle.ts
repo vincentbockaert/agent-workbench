@@ -105,3 +105,9 @@ async function excludeFromGit(worktree: string, entries: string[]): Promise<void
   fs.mkdirSync(path.dirname(exclude), { recursive: true });
   fs.writeFileSync(exclude, current);
 }
+
+// Whether any other session still works on the same ticket (ad-hoc sessions have none).
+export function hasOtherTicketSessions(sessions: Session[], session: Session): boolean {
+  const t = session.ticket;
+  return !!t && sessions.some((o) => o.id !== session.id && o.ticket?.source === t.source && o.ticket.id === t.id);
+}

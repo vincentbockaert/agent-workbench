@@ -1,0 +1,5 @@
+{
+  "name": "GitLab",
+  "listCmd": "glab issue list --opened --per-page 100 --output json",
+  "map": { "id": "iid", "title": "title", "status": "state", "url": "web_url", "description": "description" }
+}
