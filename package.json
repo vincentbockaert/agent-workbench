@@ -1,0 +1,59 @@
+{
+  "name": "agent-workbench",
+  "displayName": "Agent Workbench",
+  "description": "Control room for parallel, ticket-driven agentic coding sessions in git worktrees.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentWorkbench",
+          "title": "Agent Workbench",
+          "icon": "media/workbench.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentWorkbench": [
+        {
+          "id": "agentWorkbench.work",
+          "name": "Work"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "agentWorkbench.work",
+        "contents": "No tickets or sessions yet.\nTicket sources and sessions arrive in later phases."
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "test": "mocha",
+    "test:vscode": "npm run build && vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "10.0.10",
+    "@types/node": "20.19.43",
+    "@types/vscode": "1.93.0",
+    "@vscode/test-cli": "0.0.15",
+    "@vscode/test-electron": "3.1.0",
+    "esbuild": "0.28.2",
+    "mocha": "12.0.3",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}
