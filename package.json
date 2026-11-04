@@ -106,9 +106,37 @@
         "title": "Delete Session",
         "category": "Agent Workbench",
         "icon": "$(trash)"
+      },
+      {
+        "command": "agentWorkbench.openChange",
+        "title": "Open Changes",
+        "category": "Agent Workbench"
+      },
+      {
+        "command": "agentWorkbench.createPullRequest",
+        "title": "Create Pull Request…",
+        "category": "Agent Workbench",
+        "icon": "$(git-pull-request-create)"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "agentWorkbench.openAgent",
+          "when": "agentWorkbench.inSession",
+          "group": "navigation@90"
+        },
+        {
+          "command": "agentWorkbench.openSessionShell",
+          "when": "agentWorkbench.inSession",
+          "group": "navigation@91"
+        },
+        {
+          "command": "agentWorkbench.createPullRequest",
+          "when": "agentWorkbench.inSession",
+          "group": "navigation@92"
+        }
+      ],
       "view/title": [
         {
           "command": "agentWorkbench.newAdhocSession",
@@ -173,6 +201,11 @@
           "group": "1_open"
         },
         {
+          "command": "agentWorkbench.createPullRequest",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "2_share"
+        },
+        {
           "command": "agentWorkbench.adjustTime",
           "when": "view == agentWorkbench.work && viewItem == session",
           "group": "5_time"
@@ -194,6 +227,14 @@
         },
         {
           "command": "agentWorkbench.openSessionShell",
+          "when": "agentWorkbench.inSession"
+        },
+        {
+          "command": "agentWorkbench.createPullRequest",
+          "when": "agentWorkbench.inSession"
+        },
+        {
+          "command": "agentWorkbench.openChange",
           "when": "false"
         },
         {
@@ -206,7 +247,7 @@
         },
         {
           "command": "agentWorkbench.openAgent",
-          "when": "false"
+          "when": "agentWorkbench.inSession"
         },
         {
           "command": "agentWorkbench.startAgent",

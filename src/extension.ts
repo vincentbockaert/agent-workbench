@@ -11,6 +11,7 @@ import { refreshSource } from './tickets/snapshot';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { promptAdjustment, showTimeReport } from './time/commands';
 import { TimeTracker } from './time/tracker';
+import { openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
@@ -93,6 +94,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  // The session a command applies to: the tree node it was invoked on, else the active editor's session.
+  function sessionOf(node: WorkNode | undefined): Session | undefined {
+    if (node?.kind === 'session' || node?.kind === 'change') {
+      return node.session;
+    }
+    return sessionForEditor(sessionsHere(), vscode.window.activeTextEditor);
+  }
+
   function openShell(session: Session): void {
     const terminal = vscode.window.createTerminal({ name: `wb: ${session.id}`, cwd: session.worktree });
     tracker.registerTerminal(terminal, session);
@@ -147,17 +156,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return newSession({ adhoc: { title: title.trim(), description } });
     }),
 
-    vscode.commands.registerCommand('agentWorkbench.openSessionShell', (node: WorkNode) => {
-      if (node?.kind === 'session') {
-        openShell(node.session);
+    vscode.commands.registerCommand('agentWorkbench.openSessionShell', (node?: WorkNode) => {
+      const session = sessionOf(node);
+      if (session) {
+        openShell(session);
       }
     }),
 
     agents,
 
-    vscode.commands.registerCommand('agentWorkbench.openAgent', (node: WorkNode) =>
-      node?.kind === 'session' ? guarded(() => agents.open(node.session)) : undefined,
+    vscode.commands.registerCommand('agentWorkbench.openAgent', (node?: WorkNode) => {
+      const session = sessionOf(node);
+      return session ? guarded(() => agents.open(session)) : undefined;
+    }),
+
+    registerChangeProviders(),
+
+    vscode.commands.registerCommand('agentWorkbench.openChange', (node: WorkNode) =>
+      node?.kind === 'change' ? guarded(() => openChange(node.session, node.file)) : undefined,
     ),
+
+    // Types the push + PR command into the session's shell without running it: you review and press Enter.
+    vscode.commands.registerCommand('agentWorkbench.createPullRequest', (node?: WorkNode) => {
+      const session = sessionOf(node);
+      if (!session) {
+        return;
+      }
+      const terminal = vscode.window.createTerminal({ name: `PR: ${session.id}`, cwd: session.worktree });
+      tracker.registerTerminal(terminal, session);
+      terminal.show();
+      terminal.sendText(`git push -u origin ${session.branch} && gh pr create --fill --head ${session.branch}`, false);
+      void vscode.window.showInformationMessage(`Review the command in the "PR: ${session.id}" terminal and press Enter to push and open the pull request.`);
+    }),
+
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      void vscode.commands.executeCommand('setContext', 'agentWorkbench.inSession', sessionForEditor(sessionsHere(), editor) !== undefined);
+    }),
 
     vscode.commands.registerCommand('agentWorkbench.startAgent', (node: WorkNode) =>
       node?.kind === 'session' ? guarded(() => agents.start(node.session, true)) : undefined,

@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { AgentState, AgentStatus } from '../agents/status';
+import { diffStats, LineStats } from '../git/diff';
+import { ChangedFile, changedFiles } from '../git/worktree';
 import { Session } from '../sessions/model';
+import { changeUri } from './changes';
 import { displayedMs } from '../time/commands';
 import { Totals } from '../time/compute';
 import { formatDuration } from '../time/report';
@@ -14,7 +17,8 @@ export type WorkNode =
   | { kind: 'error'; message: string }
   | { kind: 'ticket'; group: TicketGroup }
   | { kind: 'other'; sessions: Session[] }
-  | { kind: 'session'; session: Session };
+  | { kind: 'session'; session: Session }
+  | { kind: 'change'; session: Session; file: ChangedFile; stats?: LineStats };
 
 // Renders only from snapshots and the session store, so the tree works offline and never runs commands itself.
 export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
@@ -38,7 +42,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     this.changed.fire();
   }
 
-  getChildren(node?: WorkNode): WorkNode[] {
+  getChildren(node?: WorkNode): WorkNode[] | Promise<WorkNode[]> {
     if (!node) {
       const sources = this.sources();
       const model = groupWork(sources, sources.map((cfg) => readSnapshot(this.snapshotDir, cfg.name)), this.sessions());
@@ -61,8 +65,20 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         return node.group.sessions.map((session) => ({ kind: 'session', session }));
       case 'other':
         return node.sessions.map((session) => ({ kind: 'session', session }));
+      case 'session':
+        return this.changes(node.session);
       default:
         return [];
+    }
+  }
+
+  // Only runs git when a session is expanded; a missing or broken worktree shows no children.
+  private async changes(session: Session): Promise<WorkNode[]> {
+    try {
+      const [files, stats] = await Promise.all([changedFiles(session.worktree, session.baseRef), diffStats(session.worktree, session.baseRef)]);
+      return files.map((file) => ({ kind: 'change', session, file, stats: stats.get(file.path) }));
+    } catch {
+      return [];
     }
   }
 
@@ -105,7 +121,8 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
       }
       case 'session': {
         const s = node.session;
-        const item = new vscode.TreeItem(s.title ?? s.id);
+        // Collapsed by default: expanding runs git to list the changed files.
+        const item = new vscode.TreeItem(s.title ?? s.id, vscode.TreeItemCollapsibleState.Collapsed);
         // Ticket sessions book on their ticket (shown there); ad-hoc sessions show their own time.
         const today = s.ticket ? undefined : this.todayLabel(ticketKey(s));
         item.description = [s.title ? s.id : s.branch, s.agent, today].filter(Boolean).join(' · ');
@@ -121,6 +138,18 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         item.iconPath = status ? STATE_ICONS[status.state] : new vscode.ThemeIcon('git-branch');
         item.contextValue = 'session';
         item.command = { command: 'agentWorkbench.openSessionTask', title: 'Open Task', arguments: [node] };
+        return item;
+      }
+      case 'change': {
+        const { file, stats } = node;
+        const item = new vscode.TreeItem(file.path);
+        // A custom scheme carries the status, so the decoration provider can add the M/A/D/U letter and color,
+        // while the file icon theme still picks the icon from the extension.
+        item.resourceUri = changeUri(file);
+        item.description = stats ? `+${stats.added} −${stats.removed}` : 'binary';
+        item.tooltip = `${file.status}: ${file.path}`;
+        item.contextValue = 'change';
+        item.command = { command: 'agentWorkbench.openChange', title: 'Open Changes', arguments: [node] };
         return item;
       }
     }
