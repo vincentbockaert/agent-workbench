@@ -13,4 +13,15 @@ describe('manifest', () => {
     const views = manifest.contributes.views[VIEW_CONTAINER_ID].map((v) => v.id);
     assert.deepEqual(views, [WORK_VIEW_ID]);
   });
+
+  it('ships a GitHub example that satisfies the settings schema keys', () => {
+    const example = require('../../src/tickets/examples/github.json');
+    const schema = manifest.contributes.configuration.properties['agentWorkbench.ticketSources'].items;
+    for (const key of schema.required) {
+      assert.ok(key in example, `example misses "${key}"`);
+    }
+    for (const key of Object.keys(example)) {
+      assert.ok(key in schema.properties, `example has unknown key "${key}"`);
+    }
+  });
 });

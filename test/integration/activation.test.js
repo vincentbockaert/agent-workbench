@@ -10,4 +10,8 @@ suite('activation', () => {
     // Each contributed view gets a "<id>.focus" command; executing it proves the view is registered.
     await vscode.commands.executeCommand('agentWorkbench.work.focus');
   });
+
+  test('refreshing with no ticket sources configured succeeds', async () => {
+    await vscode.commands.executeCommand('agentWorkbench.refreshTickets');
+  });
 });

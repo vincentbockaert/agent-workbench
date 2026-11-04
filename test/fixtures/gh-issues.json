@@ -1,0 +1,4 @@
+[
+  { "number": 42, "title": "Crash on empty config", "state": "OPEN", "url": "https://github.com/o/r/issues/42", "labels": [{ "name": "bug" }] },
+  { "number": 7, "title": "Add dark mode", "state": "OPEN", "url": "https://github.com/o/r/issues/7", "labels": [] }
+]

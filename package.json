@@ -35,9 +35,76 @@
     "viewsWelcome": [
       {
         "view": "agentWorkbench.work",
-        "contents": "No tickets or sessions yet.\nTicket sources and sessions arrive in later phases."
+        "contents": "No ticket sources configured.\nA source is a command that prints JSON, such as `gh issue list --json number,title,state,url`.\n[Configure ticket sources](command:workbench.action.openSettingsJson)"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "agentWorkbench.refreshTickets",
+        "title": "Refresh Tickets",
+        "category": "Agent Workbench",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "agentWorkbench.openTicketInBrowser",
+        "title": "Open in Browser",
+        "category": "Agent Workbench",
+        "icon": "$(link-external)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentWorkbench.refreshTickets",
+          "when": "view == agentWorkbench.work",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "agentWorkbench.openTicketInBrowser",
+          "when": "view == agentWorkbench.work && viewItem == ticketWithUrl",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "agentWorkbench.openTicketInBrowser",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Agent Workbench",
+      "properties": {
+        "agentWorkbench.ticketSources": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Ticket sources. Each is a shell command that prints JSON (run in the workspace folder) plus a map from ticket fields to dotted paths in each item. Example: `{ \"name\": \"GitHub\", \"listCmd\": \"gh issue list --json number,title,state,url\", \"map\": { \"id\": \"number\", \"title\": \"title\", \"status\": \"state\", \"url\": \"url\" } }`",
+          "items": {
+            "type": "object",
+            "required": ["name", "listCmd", "map"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "Unique display name." },
+              "listCmd": { "type": "string", "description": "Shell command that prints the tickets as JSON." },
+              "itemsPath": { "type": "string", "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")." },
+              "map": {
+                "type": "object",
+                "required": ["id", "title"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string" },
+                  "title": { "type": "string" },
+                  "status": { "type": "string" },
+                  "url": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",

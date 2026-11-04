@@ -1,0 +1,6 @@
+{
+  "issues": [
+    { "key": "PROJ-123", "fields": { "summary": "Export report as CSV", "status": { "name": "In Progress" } } },
+    { "key": "PROJ-124", "fields": { "summary": "Fix login timeout", "status": { "name": "To Do" } } }
+  ]
+}
