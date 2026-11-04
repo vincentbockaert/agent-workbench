@@ -149,6 +149,17 @@ function length(intervals: Interval[]): number {
   return intervals.reduce((sum, [a, b]) => sum + (b - a), 0);
 }
 
+// Sum over tickets (what you book), not a union: two tickets worked in parallel both count.
+export function sumTotals(byTicket: Record<string, Totals>): Totals {
+  const sum = { yourMs: 0, agentMs: 0, elapsedMs: 0 };
+  for (const t of Object.values(byTicket)) {
+    sum.yourMs += t.yourMs;
+    sum.agentMs += t.agentMs;
+    sum.elapsedMs += t.elapsedMs;
+  }
+  return sum;
+}
+
 // Rounds up to whole blocks of `minutes` for booking; 0 stays 0. Only used in reports.
 export function roundUpMs(ms: number, minutes: number): number {
   if (minutes <= 0) {

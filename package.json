@@ -113,6 +113,18 @@
         "category": "Agent Workbench"
       },
       {
+        "command": "agentWorkbench.filterTickets",
+        "title": "Filter Tickets…",
+        "category": "Agent Workbench",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "agentWorkbench.clearTicketFilter",
+        "title": "Clear Ticket Filter",
+        "category": "Agent Workbench",
+        "icon": "$(filter-filled)"
+      },
+      {
         "command": "agentWorkbench.createPullRequest",
         "title": "Create Pull Request…",
         "category": "Agent Workbench",
@@ -152,6 +164,16 @@
           "command": "agentWorkbench.timeReport",
           "when": "view == agentWorkbench.work",
           "group": "navigation@3"
+        },
+        {
+          "command": "agentWorkbench.filterTickets",
+          "when": "view == agentWorkbench.work && !agentWorkbench.filtered",
+          "group": "navigation@0"
+        },
+        {
+          "command": "agentWorkbench.clearTicketFilter",
+          "when": "view == agentWorkbench.work && agentWorkbench.filtered",
+          "group": "navigation@0"
         }
       ],
       "view/item/context": [

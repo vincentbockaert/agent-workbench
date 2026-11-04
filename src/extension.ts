@@ -1,15 +1,19 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { agentChoices } from './agents/choices';
+import { agentCommand } from './agents/profiles';
 import { agentProfiles, AgentTerminals } from './agents/terminals';
 import { WORK_VIEW_ID } from './constants';
 import { git } from './git/git';
-import { deleteSession, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
-import { Session } from './sessions/model';
+import { deleteSession, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
+import { Session, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { refreshSource } from './tickets/snapshot';
 import { Ticket, TicketSourceConfig } from './tickets/source';
-import { promptAdjustment, showTimeReport } from './time/commands';
+import { displayedMs, promptAdjustment, showTimeReport } from './time/commands';
+import { formatDuration } from './time/report';
+import { ticketKey } from './time/rules';
 import { TimeTracker } from './time/tracker';
 import { openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { StatusSignals } from './ui/signals';
@@ -47,10 +51,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const repoRoot = (await currentRepo())?.root;
   const sessionsHere = () => store.list().filter((s) => s.repo === repoRoot);
-  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id), (key) => tracker.today()[key]);
+  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today());
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
-  const tracker = new TimeTracker(logDir, sessionsHere, () => tree.refresh());
+  const focusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  focusBar.command = 'agentWorkbench.timeReport';
+  // The ticket you are working in and its time today, e.g. "PROJ-123 · 3h 05m today".
+  const updateFocusBar = (): void => {
+    const s = tracker.focusedSession;
+    if (!s) {
+      focusBar.hide();
+      return;
+    }
+    focusBar.text = `$(clock) ${s.ticket ? s.ticket.id : s.title ?? s.id} · ${formatDuration(displayedMs(tracker.today()[ticketKey(s)]))} today`;
+    focusBar.tooltip = 'Time booked today on the ticket you are working in. Click for the time report.';
+    focusBar.show();
+  };
+  const tracker = new TimeTracker(logDir, sessionsHere, () => {
+    tree.refresh();
+    updateFocusBar();
+  });
   const signals = new StatusSignals(sessionsHere, view, () => tree.refresh(), (s, prev, next) => tracker.statusChanged(s, prev, next));
   // Sessions added or removed: re-sync status watchers, then redraw.
   const changed = (): void => {
@@ -83,15 +103,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     try {
+      // Show the agent choice with the branch and folder it will create, before creating anything.
+      const cfg = vscode.workspace.getConfiguration('agentWorkbench');
+      const predicted = await nextSessionId(repo.root, sessionSlugBase(opts.ticket, opts.adhoc?.title), store);
+      const lastUsed = opts.ticket
+        ? store.list().filter((s) => s.ticket?.source === opts.ticket!.source && s.ticket.id === opts.ticket!.id && s.agent).pop()?.agent
+        : undefined;
+      const choices = agentChoices(agentProfiles().profiles, cfg.get<string>('defaultAgent', 'claude'), lastUsed, !cfg.get<boolean>('startAgentOnCreate', true));
+      const picked = await vscode.window.showQuickPick(
+        choices.map((choice) => ({
+          label: choice.label,
+          description: choice.description,
+          detail: choice.profile
+            ? agentCommand(choice.profile, 'start', { sessionId: predicted, branch: `wb/${predicted}` })
+            : 'Work on it yourself; time is still tracked on this ticket',
+          choice,
+        })),
+        {
+          title: `Work on ${opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title} — branch wb/${predicted} from ${repo.branch}`,
+          placeHolder: 'Which agent? Your open files and working tree are not touched.',
+          matchOnDetail: true,
+        },
+      );
+      if (!picked) {
+        return;
+      }
       const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
       tracker.sessionStarted(session);
       changed();
-      if (vscode.workspace.getConfiguration('agentWorkbench').get<boolean>('startAgentOnCreate', true)) {
-        await agents.start(session, false);
+      if (picked.choice.profile) {
+        agents.startWith(session, picked.choice.profile);
+      } else {
+        await vscode.window.showTextDocument(vscode.Uri.file(path.join(session.worktree, WORKBENCH_DIR, 'TASK.md')));
       }
     } catch (e) {
       void vscode.window.showErrorMessage(`Agent Workbench: ${(e as Error).message}`);
     }
+  }
+
+  function setFilter(text: string): void {
+    tree.filter = text.trim();
+    view.description = tree.filter ? `filter: ${tree.filter}` : undefined;
+    void vscode.commands.executeCommand('setContext', 'agentWorkbench.filtered', tree.filter !== '');
+    tree.refresh();
   }
 
   // The session a command applies to: the tree node it was invoked on, else the active editor's session.
@@ -108,10 +162,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     terminal.show();
   }
 
+  // Keeps "working · 4m" style durations and today's times moving while nothing else changes.
+  const ticker = setInterval(() => {
+    tree.refresh();
+    updateFocusBar();
+  }, 60_000);
+
   context.subscriptions.push(
     view,
     signals,
     tracker,
+    focusBar,
+    { dispose: () => clearInterval(ticker) },
+
+    vscode.commands.registerCommand('agentWorkbench.filterTickets', async () => {
+      const text = await vscode.window.showInputBox({
+        prompt: 'Show tickets whose id, title or status contains… (tickets with sessions always stay)',
+        value: tree.filter,
+        placeHolder: 'login, PROJ-12, in progress',
+      });
+      if (text !== undefined) {
+        setFilter(text);
+      }
+    }),
+
+    vscode.commands.registerCommand('agentWorkbench.clearTicketFilter', () => setFilter('')),
 
     vscode.commands.registerCommand('agentWorkbench.timeReport', () => guarded(() => showTimeReport(logDir, store.list()))),
 

@@ -1,16 +1,16 @@
 import * as vscode from 'vscode';
-import { AgentState, AgentStatus } from '../agents/status';
+import { AgentState, AgentStatus, describeSince } from '../agents/status';
 import { diffStats, LineStats } from '../git/diff';
 import { ChangedFile, changedFiles } from '../git/worktree';
 import { Session } from '../sessions/model';
 import { changeUri } from './changes';
 import { displayedMs } from '../time/commands';
-import { Totals } from '../time/compute';
+import { sumTotals, Totals } from '../time/compute';
 import { formatDuration } from '../time/report';
 import { ticketKey, ticketKeyOf } from '../time/rules';
 import { describeAge, readSnapshot } from '../tickets/snapshot';
 import { TicketSourceConfig } from '../tickets/source';
-import { groupWork, SourceGroup, TicketGroup } from './group';
+import { filterWork, groupWork, SourceGroup, TicketGroup } from './group';
 
 export type WorkNode =
   | { kind: 'source'; group: SourceGroup }
@@ -18,7 +18,9 @@ export type WorkNode =
   | { kind: 'ticket'; group: TicketGroup }
   | { kind: 'other'; sessions: Session[] }
   | { kind: 'session'; session: Session }
-  | { kind: 'change'; session: Session; file: ChangedFile; stats?: LineStats };
+  | { kind: 'change'; session: Session; file: ChangedFile; stats?: LineStats }
+  | { kind: 'today' }
+  | { kind: 'figure'; label: string; ms: number; icon: string; color: string; tooltip: string };
 
 // Renders only from snapshots and the session store, so the tree works offline and never runs commands itself.
 export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
@@ -30,13 +32,16 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly snapshotDir: string,
     private readonly sessions: () => Session[],
     private readonly status: (sessionId: string) => AgentStatus | undefined,
-    private readonly timeToday: (ticketKey: string) => Totals | undefined,
+    private readonly today: () => Record<string, Totals>,
   ) {}
 
   private todayLabel(key: string): string | undefined {
-    const ms = displayedMs(this.timeToday(key));
+    const ms = displayedMs(this.today()[key]);
     return ms >= 60_000 ? `${formatDuration(ms)} today` : undefined;
   }
+
+  // Text from "Filter Tickets…"; empty = show all.
+  filter = '';
 
   refresh(): void {
     this.changed.fire();
@@ -45,11 +50,11 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
   getChildren(node?: WorkNode): WorkNode[] | Promise<WorkNode[]> {
     if (!node) {
       const sources = this.sources();
-      const model = groupWork(sources, sources.map((cfg) => readSnapshot(this.snapshotDir, cfg.name)), this.sessions());
+      const model = filterWork(groupWork(sources, sources.map((cfg) => readSnapshot(this.snapshotDir, cfg.name)), this.sessions()), this.filter);
       const roots: WorkNode[] = model.sources.map((group) => ({ kind: 'source', group }));
       // Shown whenever there is anything else, so "new ad-hoc session" has a visible home.
       if (roots.length > 0 || model.other.length > 0) {
-        roots.push({ kind: 'other', sessions: model.other });
+        roots.push({ kind: 'other', sessions: model.other }, { kind: 'today' });
       }
       return roots;
     }
@@ -67,6 +72,14 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         return node.sessions.map((session) => ({ kind: 'session', session }));
       case 'session':
         return this.changes(node.session);
+      case 'today': {
+        const sum = sumTotals(this.today());
+        return [
+          { kind: 'figure', label: 'Elapsed', ms: sum.elapsedMs, icon: 'watch', color: 'descriptionForeground', tooltip: 'You or an agent worked on a ticket; overlaps within a ticket counted once.' },
+          { kind: 'figure', label: 'You', ms: sum.yourMs, icon: 'person', color: 'charts.blue', tooltip: 'Time you were active in sessions, plus adjustments.' },
+          { kind: 'figure', label: 'Agents', ms: sum.agentMs, icon: 'hubot', color: 'charts.purple', tooltip: 'Time agents were working.' },
+        ];
+      }
       default:
         return [];
     }
@@ -125,8 +138,9 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const item = new vscode.TreeItem(s.title ?? s.id, vscode.TreeItemCollapsibleState.Collapsed);
         // Ticket sessions book on their ticket (shown there); ad-hoc sessions show their own time.
         const today = s.ticket ? undefined : this.todayLabel(ticketKey(s));
-        item.description = [s.title ? s.id : s.branch, s.agent, today].filter(Boolean).join(' · ');
         const status = this.status(s.id);
+        const state = status && `${STATE_SHORT[status.state]} · ${describeSince(status, new Date())}`;
+        item.description = [s.title ? s.id : undefined, s.agent, state, today].filter(Boolean).join(' · ');
         item.tooltip = [
           status && `${STATE_LABELS[status.state]}${status.message ? `: ${status.message}` : ''}`,
           s.branch,
@@ -152,6 +166,22 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         item.command = { command: 'agentWorkbench.openChange', title: 'Open Changes', arguments: [node] };
         return item;
       }
+      case 'today': {
+        // Summed over tickets: what you book. The headline is the configured booked figure.
+        const item = new vscode.TreeItem('Today', vscode.TreeItemCollapsibleState.Collapsed);
+        item.description = `${formatDuration(displayedMs(sumTotals(this.today())))} booked`;
+        item.iconPath = new vscode.ThemeIcon('clock');
+        item.tooltip = 'Totals over all tickets today. Click the clock in the title bar for the full report.';
+        item.contextValue = 'today';
+        return item;
+      }
+      case 'figure': {
+        const item = new vscode.TreeItem(node.label);
+        item.description = formatDuration(node.ms);
+        item.iconPath = new vscode.ThemeIcon(node.icon, new vscode.ThemeColor(node.color));
+        item.tooltip = node.tooltip;
+        return item;
+      }
     }
   }
 }
@@ -161,6 +191,13 @@ const STATE_ICONS: Record<AgentState, vscode.ThemeIcon> = {
   working: new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.blue')),
   done: new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green')),
   exited: new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground')),
+};
+
+const STATE_SHORT: Record<AgentState, string> = {
+  'needs-input': 'needs input',
+  working: 'working',
+  done: 'your move',
+  exited: 'stopped',
 };
 
 const STATE_LABELS: Record<AgentState, string> = {

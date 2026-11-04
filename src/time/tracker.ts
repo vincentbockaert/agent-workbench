@@ -59,6 +59,11 @@ export class TimeTracker implements vscode.Disposable {
     this.terminals.set(terminal, session.id);
   }
 
+  // The session you last did something in, if you are still in it.
+  get focusedSession(): Session | undefined {
+    return this.focused;
+  }
+
   sessionStarted(session: Session): void {
     this.emit(session, 'session-start');
   }

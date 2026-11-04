@@ -20,6 +20,23 @@ export interface WorkModel {
   other: Session[];
 }
 
+// Keeps tickets whose id, title or status contains the text (case-insensitive). Tickets with sessions
+// always stay, so running work never disappears behind a filter. Empty text: no filtering.
+export function filterWork(model: WorkModel, text: string): WorkModel {
+  const needle = text.trim().toLowerCase();
+  if (!needle) {
+    return model;
+  }
+  const matches = (g: TicketGroup) => {
+    const status = 'status' in g.ticket ? g.ticket.status : undefined;
+    return [g.ticket.id, g.ticket.title, status].some((v) => v?.toLowerCase().includes(needle));
+  };
+  return {
+    ...model,
+    sources: model.sources.map((s) => ({ ...s, tickets: s.tickets.filter((g) => g.sessions.length > 0 || matches(g)) })),
+  };
+}
+
 // Pure: decides where every session shows up in the tree. snapshots[i] belongs to sources[i].
 export function groupWork(sources: TicketSourceConfig[], snapshots: (Snapshot | undefined)[], sessions: Session[]): WorkModel {
   const configured = new Set(sources.map((s) => s.name));

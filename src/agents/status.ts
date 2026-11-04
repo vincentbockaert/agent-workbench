@@ -1,11 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { formatDuration } from '../time/report';
 
 export type AgentState = 'working' | 'needs-input' | 'done' | 'exited';
 
 export interface AgentStatus {
   state: AgentState;
-  at: string;
+  at: string; // last write
+  since?: string; // when the current state began; older files lack it
   message?: string;
   agentSessionId?: string;
 }
@@ -32,6 +34,12 @@ export function parseStatus(text: string): AgentStatus | undefined {
     return undefined;
   }
   return s as AgentStatus;
+}
+
+// How long the session has been in its current state, for the tree: "now", "4m", "1h 05m".
+export function describeSince(status: AgentStatus, now: Date): string {
+  const ms = now.getTime() - Date.parse(status.since ?? status.at);
+  return ms < 60_000 ? 'now' : formatDuration(ms);
 }
 
 export function shouldNotify(prev: AgentState | undefined, next: AgentState): boolean {

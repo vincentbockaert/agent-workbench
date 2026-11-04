@@ -65,6 +65,10 @@ export class AgentTerminals implements vscode.Disposable {
     }
   }
 
+  startWith(session: Session, profile: AgentProfile): void {
+    this.run(session, profile, 'start');
+  }
+
   async resume(session: Session): Promise<void> {
     if (!session.agent) {
       throw new Error(`no agent has run in ${session.id} yet; use "Open Agent" to start one`);
@@ -125,7 +129,8 @@ export class AgentTerminals implements vscode.Disposable {
       const current = readStatusFile(file)?.state;
       // Hooks are more precise; only fill in what they cannot know (start without hooks, process exit).
       if ((state === 'working' && (current === undefined || current === 'exited')) || (state === 'exited' && current !== 'exited')) {
-        writeStatusFile(file, { state, at: new Date().toISOString() });
+        const at = new Date().toISOString();
+        writeStatusFile(file, { state, at, since: at });
       }
     }
   }

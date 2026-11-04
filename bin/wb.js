@@ -60,11 +60,15 @@ function writeStatus(file, status) {
   fs.renameSync(tmp, file);
 }
 
+// `since` marks when the current state began, so the view can show "working · 4m".
 function apply(file, next) {
   if (!next) {
     return;
   }
-  const status = { state: next.state, at: new Date().toISOString() };
+  const prev = readStatus(file);
+  const at = new Date().toISOString();
+  const since = prev && prev.state === next.state ? prev.since || prev.at : at;
+  const status = { state: next.state, at, since };
   if (next.message) {
     status.message = String(next.message).slice(0, 500);
   }

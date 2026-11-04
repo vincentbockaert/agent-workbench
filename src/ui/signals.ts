@@ -8,6 +8,7 @@ export class StatusSignals implements vscode.Disposable {
   private readonly statuses = new Map<string, AgentStatus | undefined>();
   private readonly watchers = new Map<string, vscode.Disposable>();
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  private readonly workingBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
 
   constructor(
     private readonly sessions: () => Session[],
@@ -17,6 +18,7 @@ export class StatusSignals implements vscode.Disposable {
   ) {
     this.statusBar.command = 'agentWorkbench.work.focus';
     this.statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    this.workingBar.command = 'agentWorkbench.work.focus';
   }
 
   get(sessionId: string): AgentStatus | undefined {
@@ -52,6 +54,7 @@ export class StatusSignals implements vscode.Disposable {
   dispose(): void {
     this.watchers.forEach((w) => w.dispose());
     this.statusBar.dispose();
+    this.workingBar.dispose();
   }
 
   private reload(session: Session): void {
@@ -82,6 +85,14 @@ export class StatusSignals implements vscode.Disposable {
       this.statusBar.show();
     } else {
       this.statusBar.hide();
+    }
+    const working = [...this.statuses.values()].filter((s) => s?.state === 'working').length;
+    this.workingBar.text = `$(sync~spin) ${working} working`;
+    this.workingBar.tooltip = `${working} agent${working === 1 ? '' : 's'} working`;
+    if (working > 0) {
+      this.workingBar.show();
+    } else {
+      this.workingBar.hide();
     }
   }
 }

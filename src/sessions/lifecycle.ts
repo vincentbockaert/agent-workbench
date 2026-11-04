@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CLAUDE_SETTINGS_FILE } from '../agents/status';
 import { git } from '../git/git';
-import { createWorktree, removeWorktree } from '../git/worktree';
+import { createWorktree, defaultWorktreeRoot, removeWorktree } from '../git/worktree';
 import { Ticket } from '../tickets/source';
 import { Session, sessionSlugBase } from './model';
 import { SessionStore } from './store';
@@ -64,6 +64,21 @@ export async function startSession(opts: StartSessionOptions): Promise<Session> 
     };
     store.add(session);
     return session;
+  }
+  throw new Error(`too many sessions for "${base}"`);
+}
+
+// The id startSession would pick next for this base: skips ids in the store, kept branches and existing folders.
+// Used to show the branch and folder before anything is created.
+export async function nextSessionId(repo: string, base: string, store: SessionStore, worktreeRoot?: string): Promise<string> {
+  const taken = new Set(store.list().map((s) => s.id));
+  const root = worktreeRoot ?? defaultWorktreeRoot(repo);
+  for (let n = 1; n <= MAX_SESSIONS_PER_BASE; n++) {
+    const id = `${base}-${n}`;
+    const branchTaken = (await git(repo, ['branch', '--list', `wb/${id}`])).trim() !== '';
+    if (!taken.has(id) && !branchTaken && !fs.existsSync(path.join(root, id))) {
+      return id;
+    }
   }
   throw new Error(`too many sessions for "${base}"`);
 }
