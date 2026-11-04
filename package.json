@@ -75,6 +75,22 @@
         "category": "Agent Workbench"
       },
       {
+        "command": "agentWorkbench.openAgent",
+        "title": "Open Agent",
+        "category": "Agent Workbench",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "agentWorkbench.startAgent",
+        "title": "Start New Agent Conversation…",
+        "category": "Agent Workbench"
+      },
+      {
+        "command": "agentWorkbench.resumeAgent",
+        "title": "Resume Agent",
+        "category": "Agent Workbench"
+      },
+      {
         "command": "agentWorkbench.deleteSession",
         "title": "Delete Session",
         "category": "Agent Workbench",
@@ -111,9 +127,29 @@
           "group": "inline"
         },
         {
+          "command": "agentWorkbench.openAgent",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "inline@0"
+        },
+        {
           "command": "agentWorkbench.openSessionShell",
           "when": "view == agentWorkbench.work && viewItem == session",
           "group": "inline@1"
+        },
+        {
+          "command": "agentWorkbench.openAgent",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "0_agent@1"
+        },
+        {
+          "command": "agentWorkbench.resumeAgent",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "0_agent@2"
+        },
+        {
+          "command": "agentWorkbench.startAgent",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "0_agent@3"
         },
         {
           "command": "agentWorkbench.openSessionTask",
@@ -146,12 +182,50 @@
         {
           "command": "agentWorkbench.deleteSession",
           "when": "false"
+        },
+        {
+          "command": "agentWorkbench.openAgent",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.startAgent",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.resumeAgent",
+          "when": "false"
         }
       ]
     },
     "configuration": {
       "title": "Agent Workbench",
       "properties": {
+        "agentWorkbench.agents": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one. Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`.",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "startCmd"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "startCmd": { "type": "string", "description": "Starts a new agent conversation, e.g. `aider --message-file ${promptFile}`." },
+              "resumeCmd": { "type": "string", "description": "Continues the latest conversation in this worktree, e.g. `claude --continue`." }
+            }
+          }
+        },
+        "agentWorkbench.defaultAgent": {
+          "type": "string",
+          "default": "claude",
+          "description": "Agent profile id used when a session starts its agent automatically or via Open Agent."
+        },
+        "agentWorkbench.startAgentOnCreate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the default agent as soon as a new session is created."
+        },
         "agentWorkbench.ticketSources": {
           "type": "array",
           "default": [],

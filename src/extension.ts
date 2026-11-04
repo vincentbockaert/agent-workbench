@@ -1,6 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { agentProfiles, AgentTerminals } from './agents/terminals';
 import { WORK_VIEW_ID } from './constants';
 import { git } from './git/git';
 import { deleteSession, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
@@ -42,6 +43,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const repoRoot = (await currentRepo())?.root;
   const tree = new WorkTreeProvider(ticketSources, snapshotDir, () => store.list().filter((s) => s.repo === repoRoot));
+  const agents = new AgentTerminals(store, () => tree.refresh());
+
+  function reportProfileProblems(): void {
+    for (const problem of agentProfiles().problems) {
+      void vscode.window.showWarningMessage(`Agent Workbench: ${problem}`);
+    }
+  }
+  reportProfileProblems();
+
+  // Runs a session action and shows its error instead of failing silently.
+  async function guarded(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+    } catch (e) {
+      void vscode.window.showErrorMessage(`Agent Workbench: ${(e as Error).message}`);
+    }
+  }
 
   async function newSession(opts: { ticket?: Ticket; adhoc?: { title: string; description: string } }): Promise<void> {
     const repo = await currentRepo();
@@ -52,9 +70,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
       tree.refresh();
-      const choice = await vscode.window.showInformationMessage(`Session ${session.id} created on ${session.branch}.`, 'Open Shell');
-      if (choice === 'Open Shell') {
-        openShell(session);
+      if (vscode.workspace.getConfiguration('agentWorkbench').get<boolean>('startAgentOnCreate', true)) {
+        await agents.start(session, false);
       }
     } catch (e) {
       void vscode.window.showErrorMessage(`Agent Workbench: ${(e as Error).message}`);
@@ -106,6 +123,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
 
+    agents,
+
+    vscode.commands.registerCommand('agentWorkbench.openAgent', (node: WorkNode) =>
+      node?.kind === 'session' ? guarded(() => agents.open(node.session)) : undefined,
+    ),
+
+    vscode.commands.registerCommand('agentWorkbench.startAgent', (node: WorkNode) =>
+      node?.kind === 'session' ? guarded(() => agents.start(node.session, true)) : undefined,
+    ),
+
+    vscode.commands.registerCommand('agentWorkbench.resumeAgent', (node: WorkNode) =>
+      node?.kind === 'session' ? guarded(() => agents.resume(node.session)) : undefined,
+    ),
+
     vscode.commands.registerCommand('agentWorkbench.openSessionTask', async (node: WorkNode) => {
       if (node?.kind === 'session') {
         const file = vscode.Uri.file(path.join(node.session.worktree, WORKBENCH_DIR, 'TASK.md'));
@@ -145,6 +176,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentWorkbench.ticketSources')) {
         tree.refresh();
+      }
+      if (e.affectsConfiguration('agentWorkbench.agents')) {
+        reportProfileProblems();
       }
     }),
   );

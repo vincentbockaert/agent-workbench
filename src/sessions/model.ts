@@ -15,6 +15,7 @@ export interface Session {
   createdAt: string;
   ticket?: SessionTicket; // undefined = ad-hoc session
   title?: string; // ad-hoc sessions only
+  agent?: string; // id of the agent profile last started here; Resume uses it
 }
 
 // Base slug (without the "-<n>" counter) for a ticket or ad-hoc session.

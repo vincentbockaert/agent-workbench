@@ -40,6 +40,16 @@ export class SessionStore {
     this.save();
   }
 
+  update(id: string, patch: Partial<Omit<Session, 'id'>>): Session {
+    const i = this.sessions.findIndex((s) => s.id === id);
+    if (i < 0) {
+      throw new Error(`no session "${id}"`);
+    }
+    this.sessions[i] = { ...this.sessions[i], ...patch };
+    this.save();
+    return this.sessions[i];
+  }
+
   remove(id: string): void {
     this.sessions = this.sessions.filter((s) => s.id !== id);
     this.save();

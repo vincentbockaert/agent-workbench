@@ -92,7 +92,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
       case 'session': {
         const s = node.session;
         const item = new vscode.TreeItem(s.title ?? s.id);
-        item.description = s.title ? s.id : s.branch;
+        item.description = [s.title ? s.id : s.branch, s.agent].filter(Boolean).join(' · ');
         item.tooltip = `${s.branch}\n${s.worktree}\nbased on ${s.baseRef}, created ${s.createdAt}`;
         item.iconPath = new vscode.ThemeIcon('git-branch');
         item.contextValue = 'session';
