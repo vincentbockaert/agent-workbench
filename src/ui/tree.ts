@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { AgentState, AgentStatus } from '../agents/status';
 import { Session } from '../sessions/model';
 import { describeAge, readSnapshot } from '../tickets/snapshot';
 import { TicketSourceConfig } from '../tickets/source';
@@ -20,6 +21,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly sources: () => TicketSourceConfig[],
     private readonly snapshotDir: string,
     private readonly sessions: () => Session[],
+    private readonly status: (sessionId: string) => AgentStatus | undefined,
   ) {}
 
   refresh(): void {
@@ -77,7 +79,9 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const status = 'status' in ticket ? ticket.status : undefined;
         item.description = listed ? status : 'not in list';
         item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\n${status ?? ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
-        item.iconPath = new vscode.ThemeIcon(listed ? 'issues' : 'issue-closed');
+        // A collapsed ticket still shows when one of its sessions is waiting for you.
+        const waiting = sessions.some((s) => this.status(s.id)?.state === 'needs-input');
+        item.iconPath = waiting ? STATE_ICONS['needs-input'] : new vscode.ThemeIcon(listed ? 'issues' : 'issue-closed');
         // e.g. "ticket", "ticketWithUrl", "ticketUnlistedWithUrl": menus match on these.
         item.contextValue = `ticket${listed ? '' : 'Unlisted'}${ticket.url ? 'WithUrl' : ''}`;
         return item;
@@ -93,8 +97,16 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const s = node.session;
         const item = new vscode.TreeItem(s.title ?? s.id);
         item.description = [s.title ? s.id : s.branch, s.agent].filter(Boolean).join(' · ');
-        item.tooltip = `${s.branch}\n${s.worktree}\nbased on ${s.baseRef}, created ${s.createdAt}`;
-        item.iconPath = new vscode.ThemeIcon('git-branch');
+        const status = this.status(s.id);
+        item.tooltip = [
+          status && `${STATE_LABELS[status.state]}${status.message ? `: ${status.message}` : ''}`,
+          s.branch,
+          s.worktree,
+          `based on ${s.baseRef}, created ${s.createdAt}`,
+        ]
+          .filter(Boolean)
+          .join('\n');
+        item.iconPath = status ? STATE_ICONS[status.state] : new vscode.ThemeIcon('git-branch');
         item.contextValue = 'session';
         item.command = { command: 'agentWorkbench.openSessionTask', title: 'Open Task', arguments: [node] };
         return item;
@@ -102,3 +114,17 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     }
   }
 }
+
+const STATE_ICONS: Record<AgentState, vscode.ThemeIcon> = {
+  'needs-input': new vscode.ThemeIcon('bell-dot', new vscode.ThemeColor('charts.orange')),
+  working: new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.blue')),
+  done: new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green')),
+  exited: new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground')),
+};
+
+const STATE_LABELS: Record<AgentState, string> = {
+  'needs-input': 'Needs your input',
+  working: 'Working',
+  done: 'Turn done, your move',
+  exited: 'Agent not running',
+};

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { CLAUDE_SETTINGS_FILE } from '../agents/status';
 import { git } from '../git/git';
 import { createWorktree, removeWorktree } from '../git/worktree';
 import { Ticket } from '../tickets/source';
@@ -45,7 +46,7 @@ export async function startSession(opts: StartSessionOptions): Promise<Session> 
       throw e;
     }
 
-    await excludeWorkbenchDir(wt.path);
+    await excludeFromGit(wt.path, [`/${WORKBENCH_DIR}/`, `/${CLAUDE_SETTINGS_FILE}`]);
     fs.mkdirSync(path.join(wt.path, WORKBENCH_DIR), { recursive: true });
     const task = ticket ? renderTicketTask(ticket) : renderAdhocTask(adhoc!.title, adhoc!.description);
     fs.writeFileSync(path.join(wt.path, WORKBENCH_DIR, 'TASK.md'), task);
@@ -78,13 +79,14 @@ export async function deleteSession(store: SessionStore, session: Session, opts:
 }
 
 // info/exclude is shared by all worktrees of a repo, so this also covers the main working tree.
-async function excludeWorkbenchDir(worktree: string): Promise<void> {
+async function excludeFromGit(worktree: string, entries: string[]): Promise<void> {
   const commonDir = path.resolve(worktree, (await git(worktree, ['rev-parse', '--git-common-dir'])).trim());
   const exclude = path.join(commonDir, 'info', 'exclude');
-  const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
-  const entry = `/${WORKBENCH_DIR}/`;
-  if (!current.split(/\r?\n/).includes(entry)) {
-    fs.mkdirSync(path.dirname(exclude), { recursive: true });
-    fs.appendFileSync(exclude, `${current && !current.endsWith('\n') ? '\n' : ''}${entry}\n`);
+  let current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
+  const lines = new Set(current.split(/\r?\n/));
+  for (const entry of entries.filter((e) => !lines.has(e))) {
+    current += `${current && !current.endsWith('\n') ? '\n' : ''}${entry}\n`;
   }
+  fs.mkdirSync(path.dirname(exclude), { recursive: true });
+  fs.writeFileSync(exclude, current);
 }

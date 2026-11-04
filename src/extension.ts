@@ -9,6 +9,7 @@ import { Session } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { refreshSource } from './tickets/snapshot';
 import { Ticket, TicketSourceConfig } from './tickets/source';
+import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
 function ticketSources(): TicketSourceConfig[] {
@@ -42,8 +43,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showWarningMessage(`Agent Workbench: ${store.warning}`);
   }
   const repoRoot = (await currentRepo())?.root;
-  const tree = new WorkTreeProvider(ticketSources, snapshotDir, () => store.list().filter((s) => s.repo === repoRoot));
-  const agents = new AgentTerminals(store, () => tree.refresh());
+  const sessionsHere = () => store.list().filter((s) => s.repo === repoRoot);
+  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id));
+  const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
+  const signals = new StatusSignals(sessionsHere, view, () => tree.refresh());
+  // Sessions added or removed: re-sync status watchers, then redraw.
+  const changed = (): void => {
+    signals.sync();
+    tree.refresh();
+  };
+  const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed);
+  signals.sync();
 
   function reportProfileProblems(): void {
     for (const problem of agentProfiles().problems) {
@@ -69,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     try {
       const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
-      tree.refresh();
+      changed();
       if (vscode.workspace.getConfiguration('agentWorkbench').get<boolean>('startAgentOnCreate', true)) {
         await agents.start(session, false);
       }
@@ -83,13 +93,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider(WORK_VIEW_ID, tree),
+    view,
+    signals,
 
     vscode.commands.registerCommand('agentWorkbench.refreshTickets', () =>
       vscode.window.withProgress({ location: { viewId: WORK_VIEW_ID } }, async () => {
         const now = new Date();
         await Promise.all(ticketSources().map((cfg) => refreshSource(cfg, commandCwd(), snapshotDir, now)));
-        tree.refresh();
+        changed();
       }),
     ),
 
@@ -170,12 +181,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         await deleteSession(store, s, { force: true });
       }
-      tree.refresh();
+      changed();
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentWorkbench.ticketSources')) {
-        tree.refresh();
+        changed();
       }
       if (e.affectsConfiguration('agentWorkbench.agents')) {
         reportProfileProblems();

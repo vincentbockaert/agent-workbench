@@ -226,6 +226,11 @@
           "default": true,
           "description": "Start the default agent as soon as a new session is created."
         },
+        "agentWorkbench.notifyOnNeedsInput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when a session's agent starts waiting for your input."
+        },
         "agentWorkbench.ticketSources": {
           "type": "array",
           "default": [],
