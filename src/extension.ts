@@ -9,6 +9,8 @@ import { Session } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { refreshSource } from './tickets/snapshot';
 import { Ticket, TicketSourceConfig } from './tickets/source';
+import { promptAdjustment, showTimeReport } from './time/commands';
+import { TimeTracker } from './time/tracker';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
@@ -44,15 +46,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const repoRoot = (await currentRepo())?.root;
   const sessionsHere = () => store.list().filter((s) => s.repo === repoRoot);
-  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id));
+  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id), (key) => tracker.today()[key]);
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
-  const signals = new StatusSignals(sessionsHere, view, () => tree.refresh());
+  const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
+  const tracker = new TimeTracker(logDir, sessionsHere, () => tree.refresh());
+  const signals = new StatusSignals(sessionsHere, view, () => tree.refresh(), (s, prev, next) => tracker.statusChanged(s, prev, next));
   // Sessions added or removed: re-sync status watchers, then redraw.
   const changed = (): void => {
     signals.sync();
     tree.refresh();
   };
-  const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed);
+  const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed, (t, s) => tracker.registerTerminal(t, s));
   signals.sync();
 
   function reportProfileProblems(): void {
@@ -79,6 +83,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     try {
       const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
+      tracker.sessionStarted(session);
       changed();
       if (vscode.workspace.getConfiguration('agentWorkbench').get<boolean>('startAgentOnCreate', true)) {
         await agents.start(session, false);
@@ -89,12 +94,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   function openShell(session: Session): void {
-    vscode.window.createTerminal({ name: `wb: ${session.id}`, cwd: session.worktree }).show();
+    const terminal = vscode.window.createTerminal({ name: `wb: ${session.id}`, cwd: session.worktree });
+    tracker.registerTerminal(terminal, session);
+    terminal.show();
   }
 
   context.subscriptions.push(
     view,
     signals,
+    tracker,
+
+    vscode.commands.registerCommand('agentWorkbench.timeReport', () => guarded(() => showTimeReport(logDir, store.list()))),
+
+    vscode.commands.registerCommand('agentWorkbench.adjustTime', async (node: WorkNode) => {
+      if (node?.kind === 'session') {
+        const adjustment = await promptAdjustment(node.session);
+        if (adjustment) {
+          tracker.adjust(node.session, adjustment.minutes, adjustment.note);
+        }
+      }
+    }),
 
     vscode.commands.registerCommand('agentWorkbench.refreshTickets', () =>
       vscode.window.withProgress({ location: { viewId: WORK_VIEW_ID } }, async () => {
@@ -181,12 +200,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         await deleteSession(store, s, { force: true });
       }
+      tracker.sessionEnded(s);
       changed();
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentWorkbench.ticketSources')) {
         changed();
+      }
+      if (e.affectsConfiguration('agentWorkbench.time')) {
+        tree.refresh();
       }
       if (e.affectsConfiguration('agentWorkbench.agents')) {
         reportProfileProblems();

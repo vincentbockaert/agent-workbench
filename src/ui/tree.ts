@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { AgentState, AgentStatus } from '../agents/status';
 import { Session } from '../sessions/model';
+import { displayedMs } from '../time/commands';
+import { Totals } from '../time/compute';
+import { formatDuration } from '../time/report';
+import { ticketKey, ticketKeyOf } from '../time/rules';
 import { describeAge, readSnapshot } from '../tickets/snapshot';
 import { TicketSourceConfig } from '../tickets/source';
 import { groupWork, SourceGroup, TicketGroup } from './group';
@@ -22,7 +26,13 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly snapshotDir: string,
     private readonly sessions: () => Session[],
     private readonly status: (sessionId: string) => AgentStatus | undefined,
+    private readonly timeToday: (ticketKey: string) => Totals | undefined,
   ) {}
+
+  private todayLabel(key: string): string | undefined {
+    const ms = displayedMs(this.timeToday(key));
+    return ms >= 60_000 ? `${formatDuration(ms)} today` : undefined;
+  }
 
   refresh(): void {
     this.changed.fire();
@@ -77,7 +87,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const state = sessions.length > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None;
         const item = new vscode.TreeItem(`${ticket.id} ${ticket.title}`, state);
         const status = 'status' in ticket ? ticket.status : undefined;
-        item.description = listed ? status : 'not in list';
+        item.description = [listed ? status : 'not in list', this.todayLabel(ticketKeyOf(ticket.source, ticket.id))].filter(Boolean).join(' · ');
         item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\n${status ?? ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
         // A collapsed ticket still shows when one of its sessions is waiting for you.
         const waiting = sessions.some((s) => this.status(s.id)?.state === 'needs-input');
@@ -96,7 +106,9 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
       case 'session': {
         const s = node.session;
         const item = new vscode.TreeItem(s.title ?? s.id);
-        item.description = [s.title ? s.id : s.branch, s.agent].filter(Boolean).join(' · ');
+        // Ticket sessions book on their ticket (shown there); ad-hoc sessions show their own time.
+        const today = s.ticket ? undefined : this.todayLabel(ticketKey(s));
+        item.description = [s.title ? s.id : s.branch, s.agent, today].filter(Boolean).join(' · ');
         const status = this.status(s.id);
         item.tooltip = [
           status && `${STATE_LABELS[status.state]}${status.message ? `: ${status.message}` : ''}`,

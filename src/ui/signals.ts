@@ -13,6 +13,7 @@ export class StatusSignals implements vscode.Disposable {
     private readonly sessions: () => Session[],
     private readonly view: vscode.TreeView<unknown>,
     private readonly onChange: () => void,
+    private readonly onStatusChange: (session: Session, prev: AgentStatus | undefined, next: AgentStatus | undefined) => void,
   ) {
     this.statusBar.command = 'agentWorkbench.work.focus';
     this.statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
@@ -57,6 +58,7 @@ export class StatusSignals implements vscode.Disposable {
     const prev = this.statuses.get(session.id);
     const next = readStatusFile(statusFile(session));
     this.statuses.set(session.id, next);
+    this.onStatusChange(session, prev, next);
     if (next && shouldNotify(prev?.state, next.state) && vscode.workspace.getConfiguration('agentWorkbench').get('notifyOnNeedsInput', true)) {
       void vscode.window
         .showWarningMessage(`${session.title ?? session.id} needs your input${next.message ? `: ${next.message}` : ''}`, 'Open Agent')

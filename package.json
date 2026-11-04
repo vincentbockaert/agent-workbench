@@ -91,6 +91,17 @@
         "category": "Agent Workbench"
       },
       {
+        "command": "agentWorkbench.timeReport",
+        "title": "Time Report…",
+        "category": "Agent Workbench",
+        "icon": "$(clock)"
+      },
+      {
+        "command": "agentWorkbench.adjustTime",
+        "title": "Adjust Time…",
+        "category": "Agent Workbench"
+      },
+      {
         "command": "agentWorkbench.deleteSession",
         "title": "Delete Session",
         "category": "Agent Workbench",
@@ -108,6 +119,11 @@
           "command": "agentWorkbench.refreshTickets",
           "when": "view == agentWorkbench.work",
           "group": "navigation@2"
+        },
+        {
+          "command": "agentWorkbench.timeReport",
+          "when": "view == agentWorkbench.work",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -157,6 +173,11 @@
           "group": "1_open"
         },
         {
+          "command": "agentWorkbench.adjustTime",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "5_time"
+        },
+        {
           "command": "agentWorkbench.deleteSession",
           "when": "view == agentWorkbench.work && viewItem == session",
           "group": "9_delete"
@@ -194,6 +215,10 @@
         {
           "command": "agentWorkbench.resumeAgent",
           "when": "false"
+        },
+        {
+          "command": "agentWorkbench.adjustTime",
+          "when": "false"
         }
       ]
     },
@@ -230,6 +255,29 @@
           "type": "boolean",
           "default": true,
           "description": "Show a notification when a session's agent starts waiting for your input."
+        },
+        "agentWorkbench.time.idleMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "A gap without your activity longer than this ends your time interval at your last activity."
+        },
+        "agentWorkbench.time.bookedFigure": {
+          "type": "string",
+          "enum": ["elapsed", "your", "agent"],
+          "default": "elapsed",
+          "enumDescriptions": [
+            "Time you or an agent worked on the ticket (overlaps counted once).",
+            "Only time you were active in the ticket's sessions, plus adjustments.",
+            "Only time an agent was working on the ticket."
+          ],
+          "description": "Which figure is shown on tickets and booked in time reports."
+        },
+        "agentWorkbench.time.roundToMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 0,
+          "description": "Time reports round the booked figure up to blocks of this many minutes (0 = no rounding). Stored data is never rounded."
         },
         "agentWorkbench.ticketSources": {
           "type": "array",

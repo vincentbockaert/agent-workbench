@@ -27,6 +27,7 @@ export class AgentTerminals implements vscode.Disposable {
     private readonly store: SessionStore,
     private readonly wbScript: string,
     private readonly onChange: () => void,
+    private readonly onTerminal: (terminal: vscode.Terminal, session: Session) => void,
   ) {
     // Fallback for agents without hooks: the shell tells us when the agent command starts and ends.
     this.listeners = [
@@ -89,6 +90,7 @@ export class AgentTerminals implements vscode.Disposable {
       env: { WB_STATUS_FILE: statusFile(session), WB_SESSION_ID: session.id },
     });
     this.terminals.set(session.id, { terminal, session });
+    this.onTerminal(terminal, session);
     terminal.show();
     terminal.sendText(cmd);
     if (session.agent !== profile.id) {
