@@ -88,7 +88,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return titles;
   };
-  const report = new TimeReportPanel(logDir, reportTitles);
+  const report = new TimeReportPanel({
+    logDir,
+    ledgerFile: path.join(context.globalStorageUri.fsPath, 'worklog.jsonl'),
+    titles: reportTitles,
+    sources: ticketSources,
+    cwd: commandCwd,
+  });
   const signals = new StatusSignals(sessionsHere, view, () => tree.refresh(), (s, prev, next) => tracker.statusChanged(s, prev, next));
   // Sessions added or removed: re-sync status watchers, then redraw.
   const changed = (): void => {

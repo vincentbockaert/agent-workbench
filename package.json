@@ -369,6 +369,10 @@
               "name": { "type": "string", "description": "Unique display name." },
               "listCmd": { "type": "string", "description": "Shell command that prints the tickets as JSON." },
               "itemsPath": { "type": "string", "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")." },
+              "logCmd": {
+                "type": "string",
+                "markdownDescription": "Optional shell command that logs one worklog entry, used by **Log to tracker…** in the time report after you confirm. It receives the values as environment variables, never pasted into the command: `WB_TICKET_ID`, `WB_TICKET_SOURCE`, `WB_TICKET`, `WB_DATE` (YYYY-MM-DD), `WB_MINUTES`, `WB_SECONDS`, `WB_NOTE`. Must exit non-zero on failure."
+              },
               "map": {
                 "type": "object",
                 "required": ["id", "title"],
