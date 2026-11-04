@@ -113,6 +113,12 @@
         "category": "Agent Workbench"
       },
       {
+        "command": "agentWorkbench.openTicketHub",
+        "title": "Open Ticket",
+        "category": "Agent Workbench",
+        "icon": "$(preview)"
+      },
+      {
         "command": "agentWorkbench.filterTickets",
         "title": "Filter Tickets…",
         "category": "Agent Workbench",
@@ -188,6 +194,11 @@
           "group": "inline@2"
         },
         {
+          "command": "agentWorkbench.openTicketHub",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket/",
+          "group": "1_open"
+        },
+        {
           "command": "agentWorkbench.newAdhocSession",
           "when": "view == agentWorkbench.work && viewItem == other",
           "group": "inline"
@@ -257,6 +268,10 @@
         },
         {
           "command": "agentWorkbench.openChange",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.openTicketHub",
           "when": "false"
         },
         {
@@ -362,7 +377,8 @@
                   "id": { "type": "string" },
                   "title": { "type": "string" },
                   "status": { "type": "string" },
-                  "url": { "type": "string" }
+                  "url": { "type": "string" },
+                  "description": { "type": "string", "description": "Dotted path to the ticket's body text, shown in the ticket hub." }
                 }
               }
             }

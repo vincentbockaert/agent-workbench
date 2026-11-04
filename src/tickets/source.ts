@@ -12,6 +12,7 @@ export interface TicketSourceConfig {
     title: string;
     status?: string;
     url?: string;
+    description?: string;
   };
 }
 
@@ -21,6 +22,7 @@ export interface Ticket {
   title: string;
   status?: string;
   url?: string;
+  description?: string;
   raw: unknown;
 }
 
@@ -30,14 +32,18 @@ export function mapTickets(json: unknown, cfg: TicketSourceConfig): Ticket[] {
     const where = cfg.itemsPath ? `"${cfg.itemsPath}"` : 'the output';
     throw new Error(`expected ${where} to be an array of tickets`);
   }
-  return items.map((item, i) => ({
-    source: cfg.name,
-    id: required(item, cfg.map.id, i, 'id'),
-    title: required(item, cfg.map.title, i, 'title'),
-    status: optional(item, cfg.map.status),
-    url: optional(item, cfg.map.url),
-    raw: item,
-  }));
+  return items.map((item, i) => {
+    const description = optional(item, cfg.map.description);
+    return {
+      source: cfg.name,
+      id: required(item, cfg.map.id, i, 'id'),
+      title: required(item, cfg.map.title, i, 'title'),
+      status: optional(item, cfg.map.status),
+      url: optional(item, cfg.map.url),
+      ...(description !== undefined ? { description } : {}),
+      raw: item,
+    };
+  });
 }
 
 // Runs the configured command through the shell (it is the user's own config, and trackers'

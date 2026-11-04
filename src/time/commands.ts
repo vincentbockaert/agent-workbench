@@ -66,9 +66,9 @@ export async function showTimeReport(logDir: string, sessions: Session[]): Promi
 }
 
 // Asks for a correction in minutes (negative to subtract) and an optional note.
-export async function promptAdjustment(session: Session): Promise<{ minutes: number; note: string } | undefined> {
+export async function promptAdjustment(label: string): Promise<{ minutes: number; note: string } | undefined> {
   const value = await vscode.window.showInputBox({
-    prompt: `Adjust today's time for ${session.ticket ? `${session.ticket.source} ${session.ticket.id}` : session.title ?? session.id} (minutes, negative to subtract)`,
+    prompt: `Adjust today's time for ${label} (minutes, negative to subtract)`,
     placeHolder: '30',
     validateInput: (v) => (/^-?\d+$/.test(v.trim()) && Number(v) !== 0 && Math.abs(Number(v)) <= 1440 ? undefined : 'Enter a whole number of minutes between -1440 and 1440, not 0'),
   });

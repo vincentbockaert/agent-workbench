@@ -100,6 +100,13 @@ export class TimeTracker implements vscode.Disposable {
     this.emit(session, 'adjust', { minutes, ...(note ? { note } : {}) });
   }
 
+  // A correction on a ticket that has no session (e.g. from the ticket hub before any work started).
+  adjustTicket(key: string, minutes: number, note: string): void {
+    appendEvent(this.logDir, { ts: new Date().toISOString(), ticket: key, session: `adjust:${key}`, type: 'adjust', minutes, ...(note ? { note } : {}) });
+    this.todayCache = undefined;
+    this.onChange();
+  }
+
   // Today's totals per ticket key, recomputed after each new event.
   today(): Record<string, Totals> {
     const [day] = localDays(new Date(), new Date());

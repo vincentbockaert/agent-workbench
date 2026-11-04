@@ -15,7 +15,7 @@ export interface ComputeOptions {
   idleMs: number;
 }
 
-type Interval = [number, number];
+export type Interval = [number, number];
 
 interface SessionState {
   ticket: string;
@@ -32,6 +32,27 @@ interface SessionState {
 // Intervals left open (crash, missing end) close at the session's last recorded event, never "now".
 // Parallel sessions of one ticket are unioned, so nothing is counted twice.
 export function totalsByTicket(events: TimeEvent[], range: Range, opts: ComputeOptions): Record<string, Totals> {
+  const { agent, focus, adjustMs } = collect(events, range, opts);
+  const result: Record<string, Totals> = {};
+  const tickets = new Set([...agent.keys(), ...focus.keys(), ...adjustMs.keys()]);
+  for (const ticket of tickets) {
+    const a = clip(agent.get(ticket) ?? [], range);
+    const f = clip(focus.get(ticket) ?? [], range);
+    const adjust = adjustMs.get(ticket) ?? 0;
+    const totals = {
+      yourMs: Math.max(0, length(union(f)) + adjust),
+      agentMs: length(union(a)),
+      elapsedMs: Math.max(0, length(union([...a, ...f])) + adjust),
+    };
+    if (totals.yourMs > 0 || totals.agentMs > 0 || totals.elapsedMs > 0) {
+      result[ticket] = totals;
+    }
+  }
+  return result;
+}
+
+// Replays the events into raw (unclipped, unmerged) intervals per ticket, plus adjustments dated in the range.
+function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
   const sorted = [...events].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
   const agent = new Map<string, Interval[]>();
   const focus = new Map<string, Interval[]>();
@@ -106,23 +127,7 @@ export function totalsByTicket(events: TimeEvent[], range: Range, opts: ComputeO
       push(focus, s.ticket, [s.focus.start, s.focus.last]);
     }
   }
-
-  const result: Record<string, Totals> = {};
-  const tickets = new Set([...agent.keys(), ...focus.keys(), ...adjustMs.keys()]);
-  for (const ticket of tickets) {
-    const a = clip(agent.get(ticket) ?? [], range);
-    const f = clip(focus.get(ticket) ?? [], range);
-    const adjust = adjustMs.get(ticket) ?? 0;
-    const totals = {
-      yourMs: Math.max(0, length(union(f)) + adjust),
-      agentMs: length(union(a)),
-      elapsedMs: Math.max(0, length(union([...a, ...f])) + adjust),
-    };
-    if (totals.yourMs > 0 || totals.agentMs > 0 || totals.elapsedMs > 0) {
-      result[ticket] = totals;
-    }
-  }
-  return result;
+  return { agent, focus, adjustMs };
 }
 
 function clip(intervals: Interval[], range: Range): Interval[] {
@@ -147,6 +152,25 @@ function union(intervals: Interval[]): Interval[] {
 
 function length(intervals: Interval[]): number {
   return intervals.reduce((sum, [a, b]) => sum + (b - a), 0);
+}
+
+export interface TicketIntervals {
+  you: Interval[];
+  agents: Interval[];
+}
+
+// The merged intervals behind the totals, clipped to the range: for drawing a timeline.
+export function ticketIntervals(events: TimeEvent[], range: Range, opts: ComputeOptions): Record<string, TicketIntervals> {
+  const { agent, focus } = collect(events, range, opts);
+  const result: Record<string, TicketIntervals> = {};
+  for (const ticket of new Set([...agent.keys(), ...focus.keys()])) {
+    const you = union(clip(focus.get(ticket) ?? [], range));
+    const agents = union(clip(agent.get(ticket) ?? [], range));
+    if (you.length > 0 || agents.length > 0) {
+      result[ticket] = { you, agents };
+    }
+  }
+  return result;
 }
 
 // Sum over tickets (what you book), not a union: two tickets worked in parallel both count.

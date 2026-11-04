@@ -5,15 +5,17 @@ import { agentChoices } from './agents/choices';
 import { agentCommand } from './agents/profiles';
 import { agentProfiles, AgentTerminals } from './agents/terminals';
 import { WORK_VIEW_ID } from './constants';
+import { HubTicket } from './hub/model';
+import { TicketHubs } from './hub/panel';
 import { git } from './git/git';
 import { deleteSession, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
-import { refreshSource } from './tickets/snapshot';
+import { readSnapshot, refreshSource } from './tickets/snapshot';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment, showTimeReport } from './time/commands';
 import { formatDuration } from './time/report';
-import { ticketKey } from './time/rules';
+import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
 import { openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { StatusSignals } from './ui/signals';
@@ -79,6 +81,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed, (t, s) => tracker.registerTerminal(t, s));
   signals.sync();
+
+  // A listed ticket from the snapshots (needed to start a session), by "<source>:<id>".
+  const snapshotTicket = (key: string): Ticket | undefined => {
+    for (const cfg of ticketSources()) {
+      const t = readSnapshot(snapshotDir, cfg.name)?.tickets.find((t) => ticketKeyOf(t.source, t.id) === key);
+      if (t) {
+        return t;
+      }
+    }
+    return undefined;
+  };
+  // What the hub shows: the listed ticket, else what its sessions remember of it.
+  const findTicket = (key: string): HubTicket | undefined => {
+    const t = snapshotTicket(key);
+    if (t) {
+      return { key, source: t.source, id: t.id, title: t.title, status: t.status, url: t.url, description: t.description, listed: true };
+    }
+    const remembered = store.list().find((s) => s.ticket && ticketKeyOf(s.ticket.source, s.ticket.id) === key)?.ticket;
+    return remembered && { key, source: remembered.source, id: remembered.id, title: remembered.title, url: remembered.url, listed: false };
+  };
+  const hubs = new TicketHubs({
+    sessions: sessionsHere,
+    status: (id) => signals.get(id),
+    logDir,
+    findTicket,
+    onMessage: (key, msg, session) => {
+      switch (msg.command) {
+        case 'newSession': {
+          const t = snapshotTicket(key);
+          return t ? void newSession({ ticket: t }) : undefined;
+        }
+        case 'openInBrowser': {
+          const url = findTicket(key)?.url;
+          return url ? void vscode.env.openExternal(vscode.Uri.parse(url)) : undefined;
+        }
+        case 'adjustTime':
+          return void promptAdjustment(findTicket(key)?.id ?? key).then((a) => a && tracker.adjustTicket(key, a.minutes, a.note));
+        case 'openAgent':
+          return session ? void guarded(() => agents.open(session)) : undefined;
+        case 'openShell':
+          return session ? openShell(session) : undefined;
+        case 'openTask':
+          return session ? void vscode.commands.executeCommand('agentWorkbench.openSessionTask', { kind: 'session', session }) : undefined;
+      }
+    },
+  });
+  // Anything that redraws the tree may change what an open hub shows.
+  tree.onDidChangeTreeData(() => hubs.refreshAll());
 
   function reportProfileProblems(): void {
     for (const problem of agentProfiles().problems) {
@@ -188,11 +238,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('agentWorkbench.clearTicketFilter', () => setFilter('')),
 
+    hubs,
+
+    vscode.commands.registerCommand('agentWorkbench.openTicketHub', (node: WorkNode) => {
+      if (node?.kind === 'ticket') {
+        hubs.open(ticketKeyOf(node.group.ticket.source, node.group.ticket.id));
+      }
+    }),
+
     vscode.commands.registerCommand('agentWorkbench.timeReport', () => guarded(() => showTimeReport(logDir, store.list()))),
 
     vscode.commands.registerCommand('agentWorkbench.adjustTime', async (node: WorkNode) => {
       if (node?.kind === 'session') {
-        const adjustment = await promptAdjustment(node.session);
+        const s = node.session;
+        const adjustment = await promptAdjustment(s.ticket ? `${s.ticket.source} ${s.ticket.id}` : s.title ?? s.id);
         if (adjustment) {
           tracker.adjust(node.session, adjustment.minutes, adjustment.note);
         }

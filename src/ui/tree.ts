@@ -123,6 +123,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         item.iconPath = waiting ? STATE_ICONS['needs-input'] : new vscode.ThemeIcon(listed ? 'issues' : 'issue-closed');
         // e.g. "ticket", "ticketWithUrl", "ticketUnlistedWithUrl": menus match on these.
         item.contextValue = `ticket${listed ? '' : 'Unlisted'}${ticket.url ? 'WithUrl' : ''}`;
+        item.command = { command: 'agentWorkbench.openTicketHub', title: 'Open Ticket', arguments: [node] };
         return item;
       }
       case 'other': {
