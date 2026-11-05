@@ -129,11 +129,11 @@ describe('worktree', function () {
 
   describe('addWorktreeForBranch', () => {
     it('checks an existing branch out next to the repo, under a folder-safe name', async () => {
-      await git(repo, ['branch', 'feature/HDO-9_Some.Thing']);
-      const dir = await addWorktreeForBranch(repo, 'feature/HDO-9_Some.Thing');
+      await git(repo, ['branch', 'feature/PROJ-9_Some.Thing']);
+      const dir = await addWorktreeForBranch(repo, 'feature/PROJ-9_Some.Thing');
 
-      assert.equal(dir, path.join(parent, 'repo.worktrees', 'feature-hdo-9_some.thing'));
-      assert.equal((await git(dir, ['branch', '--show-current'])).trim(), 'feature/HDO-9_Some.Thing');
+      assert.equal(dir, path.join(parent, 'repo.worktrees', 'feature-proj-9_some.thing'));
+      assert.equal((await git(dir, ['branch', '--show-current'])).trim(), 'feature/PROJ-9_Some.Thing');
     });
 
     it('honours a custom root', async () => {

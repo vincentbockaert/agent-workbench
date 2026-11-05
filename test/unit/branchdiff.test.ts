@@ -13,7 +13,7 @@ describe('branchdiff', function () {
   // A branch (not checked out afterwards) with an added, a modified and a deleted file; main moves on after it branched.
   beforeEach(async () => {
     ({ parent, repo } = await makeRepo());
-    await git(repo, ['checkout', '-q', '-b', 'feature/HDO-1-x']);
+    await git(repo, ['checkout', '-q', '-b', 'feature/PROJ-1-x']);
     fs.writeFileSync(path.join(repo, 'new.txt'), 'one\ntwo\n');
     fs.writeFileSync(path.join(repo, 'edit.txt'), 'after\n');
     fs.rmSync(path.join(repo, 'gone.txt'));
@@ -29,7 +29,7 @@ describe('branchdiff', function () {
 
   describe('changedFilesForBranch', () => {
     it('lists the branch changes since it left the base, not what the base gained later', async () => {
-      assert.deepEqual(await changedFilesForBranch(repo, 'feature/HDO-1-x', 'main'), [
+      assert.deepEqual(await changedFilesForBranch(repo, 'feature/PROJ-1-x', 'main'), [
         { path: 'edit.txt', status: 'modified' },
         { path: 'gone.txt', status: 'deleted' },
         { path: 'new.txt', status: 'added' },
@@ -48,7 +48,7 @@ describe('branchdiff', function () {
 
   describe('diffStatsForBranch', () => {
     it('counts added and removed lines per path', async () => {
-      const stats = await diffStatsForBranch(repo, 'feature/HDO-1-x', 'main');
+      const stats = await diffStatsForBranch(repo, 'feature/PROJ-1-x', 'main');
       assert.deepEqual(stats.get('new.txt'), { added: 2, removed: 0 });
       assert.deepEqual(stats.get('edit.txt'), { added: 1, removed: 1 });
       assert.deepEqual(stats.get('gone.txt'), { added: 0, removed: 1 });
@@ -56,12 +56,12 @@ describe('branchdiff', function () {
     });
 
     it('leaves binary files out', async () => {
-      await git(repo, ['checkout', '-q', 'feature/HDO-1-x']);
+      await git(repo, ['checkout', '-q', 'feature/PROJ-1-x']);
       fs.writeFileSync(path.join(repo, 'blob.bin'), Buffer.from([0, 1, 2, 0, 3]));
       await commitAll(repo, 'binary');
       await git(repo, ['checkout', '-q', 'main']);
 
-      const stats = await diffStatsForBranch(repo, 'feature/HDO-1-x', 'main');
+      const stats = await diffStatsForBranch(repo, 'feature/PROJ-1-x', 'main');
       assert.equal(stats.has('blob.bin'), false);
       assert.ok(stats.has('new.txt'));
     });
@@ -69,18 +69,18 @@ describe('branchdiff', function () {
 
   describe('changesForTarget and targetMergeBase', () => {
     it('without a worktree: committed changes, read from the repo', async () => {
-      const { files, stats } = await changesForTarget({ repo, branch: 'feature/HDO-1-x', baseRef: 'main' });
+      const { files, stats } = await changesForTarget({ repo, branch: 'feature/PROJ-1-x', baseRef: 'main' });
       assert.deepEqual(files.map((f) => f.path), ['edit.txt', 'gone.txt', 'new.txt']);
       assert.deepEqual(stats.get('new.txt'), { added: 2, removed: 0 });
     });
 
     it('with a worktree: also uncommitted and untracked work', async () => {
-      const worktree = path.join(parent, 'repo-hdo-1');
-      await git(repo, ['worktree', 'add', '-q', worktree, 'feature/HDO-1-x']);
+      const worktree = path.join(parent, 'repo-proj-1');
+      await git(repo, ['worktree', 'add', '-q', worktree, 'feature/PROJ-1-x']);
       fs.writeFileSync(path.join(worktree, 'edit.txt'), 'after\nby hand\n');
       fs.writeFileSync(path.join(worktree, 'scratch.txt'), 'x\n');
 
-      const { files, stats } = await changesForTarget({ repo, branch: 'feature/HDO-1-x', baseRef: 'main', worktree });
+      const { files, stats } = await changesForTarget({ repo, branch: 'feature/PROJ-1-x', baseRef: 'main', worktree });
       assert.deepEqual(files.map((f) => [f.path, f.status]), [
         ['edit.txt', 'modified'],
         ['gone.txt', 'deleted'],
@@ -91,12 +91,12 @@ describe('branchdiff', function () {
     });
 
     it('targetMergeBase is the commit the branch left the base at, with or without a worktree', async () => {
-      const expected = (await git(repo, ['merge-base', 'main', 'feature/HDO-1-x'])).trim();
-      const worktree = path.join(parent, 'repo-hdo-1');
-      await git(repo, ['worktree', 'add', '-q', worktree, 'feature/HDO-1-x']);
+      const expected = (await git(repo, ['merge-base', 'main', 'feature/PROJ-1-x'])).trim();
+      const worktree = path.join(parent, 'repo-proj-1');
+      await git(repo, ['worktree', 'add', '-q', worktree, 'feature/PROJ-1-x']);
 
-      assert.equal(await targetMergeBase({ repo, branch: 'feature/HDO-1-x', baseRef: 'main' }), expected);
-      assert.equal(await targetMergeBase({ repo, branch: 'feature/HDO-1-x', baseRef: 'main', worktree }), expected);
+      assert.equal(await targetMergeBase({ repo, branch: 'feature/PROJ-1-x', baseRef: 'main' }), expected);
+      assert.equal(await targetMergeBase({ repo, branch: 'feature/PROJ-1-x', baseRef: 'main', worktree }), expected);
     });
   });
 });

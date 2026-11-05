@@ -6,7 +6,7 @@ import { Session, sessionsInRepos } from '../sessions/model';
 const KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 
 // True when the branch name contains the ticket key, case-insensitively, delimited by non-alphanumerics:
-// "feature/HDO-1938-x" matches HDO-1938, "hdo-19381" and "xhdo-1938" do not.
+// "feature/PROJ-1938-x" matches PROJ-1938, "proj-19381" and "xproj-1938" do not.
 export function isTicketKey(id: string): boolean {
   return KEY.test(id);
 }

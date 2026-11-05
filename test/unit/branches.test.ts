@@ -30,13 +30,13 @@ describe('branches', function () {
     });
 
     it('lists linked worktrees with short branch names, including slashes', async () => {
-      const wt = path.join(parent, 'repo-hdo-1938');
-      await git(repo, ['worktree', 'add', '-q', '-b', 'feature/HDO-1938-x', wt]);
+      const wt = path.join(parent, 'repo-proj-1938');
+      await git(repo, ['worktree', 'add', '-q', '-b', 'feature/PROJ-1938-x', wt]);
 
       const list = await listWorktrees(repo);
       assert.equal(list.length, 2);
       assert.equal(list[1].path, wt);
-      assert.equal(list[1].branch, 'feature/HDO-1938-x');
+      assert.equal(list[1].branch, 'feature/PROJ-1938-x');
       assert.equal(list[1].main, false);
     });
 
@@ -85,10 +85,10 @@ describe('branches', function () {
 
   describe('listLocalBranches', () => {
     it('lists local branches only, including slashed names', async () => {
-      await git(repo, ['branch', 'feature/HDO-1938-x']);
+      await git(repo, ['branch', 'feature/PROJ-1938-x']);
       await git(repo, ['branch', 'wb/proj-1-1']);
 
-      assert.deepEqual((await listLocalBranches(repo)).sort(), ['feature/HDO-1938-x', 'main', 'wb/proj-1-1']);
+      assert.deepEqual((await listLocalBranches(repo)).sort(), ['feature/PROJ-1938-x', 'main', 'wb/proj-1-1']);
     });
 
     it('does not list remote-tracking branches', async () => {

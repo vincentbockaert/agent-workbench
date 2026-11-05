@@ -9,9 +9,14 @@ A VS Code control room for agentic coding, with **tickets as the root of the wor
 - Every ticket has a local **workbench status** (To do → Doing → Review → Done), next to the tracker's read-only status.
 - Time on tickets is tracked **deterministically** from an append-only event log: your time, agent time and elapsed time, with a weekly report to enter into your timesheet.
 
-Local only: the extension is `"private"` and not published.
+Not published to a marketplace: releases are `.vsix` files on this repository's [GitHub Releases page](https://github.com/vincentbockaert/agent-workbench/releases).
 
 ## Install
+
+From a release: download `agent-workbench-<version>.vsix` from the Releases page, then
+`code --install-extension agent-workbench-<version>.vsix` (`code-insiders` for VS Code Insiders), or use *Extensions: Install from VSIX…*.
+
+From source:
 
 ```bash
 npm install
@@ -108,9 +113,9 @@ Outside a workbench session `wb.js` does nothing, so global hooks are harmless.
 
 ## Manual work on a ticket
 
-A ticket lists, next to its sessions, **every local branch whose name carries the ticket key**, in every repo found in the window: `feature/HDO-1938-env-traffic`, `hdo-1938`, `feat/HDO-1938_x` all belong to `HDO-1938`. Work you started by hand, in a plain branch or in your own worktree, shows up without any setup.
+A ticket lists, next to its sessions, **every local branch whose name carries the ticket key**, in every repo found in the window: `feature/PROJ-1938-env-traffic`, `proj-1938`, `feat/PROJ-1938_x` all belong to `PROJ-1938`. Work you started by hand, in a plain branch or in your own worktree, shows up without any setup.
 
-- Matching is case-insensitive and delimited by non-alphanumerics, so `HDO-19` never matches `hdo-1938`. Only Jira-style ids (`ABC-123`) are matched by name; tickets with numeric ids (GitHub `#12`) show their sessions only.
+- Matching is case-insensitive and delimited by non-alphanumerics, so `PROJ-19` never matches `proj-1938`. Only Jira-style ids (`ABC-123`) are matched by name; tickets with numeric ids (GitHub `#12`) show their sessions only.
 - Expand a branch to see its changes against the merge base with the repo's default branch (`origin/HEAD`, else `main` or `master`); click a file for the same side-by-side diff as for sessions.
 - **Checked out** (in a worktree or the main working tree): the diff includes uncommitted and untracked work, and its right side is the real file, so you can edit it right there.
 - **No checkout**: only committed changes, shown read-only. **Open in New Worktree** (inline button or context menu) checks the branch out into `<repo>.worktrees/<branch>` without starting an agent; the branch then behaves like the case above.
@@ -156,6 +161,14 @@ In VS Code's global storage for the extension (`…/globalStorage/local.agent-wo
 | `entered.jsonl` | What you marked as entered (append-only) |
 
 Per session, in its worktree (git-excluded): `.workbench/TASK.md`, `.workbench/status.json`, and for Claude `.claude/settings.local.json`.
+
+## Releasing
+
+1. Bump `version` in `package.json` (`npm version <patch|minor> --no-git-tag-version`), commit and merge to `main`.
+2. Tag and push: `git tag v<version> && git push origin v<version>`.
+3. The `Release` workflow checks that the tag matches `package.json`, runs typecheck and unit tests, builds the `.vsix` and attaches it to a GitHub Release with generated notes.
+
+CI (`ci.yml`) runs typecheck, unit tests and packaging on every push to `main` and every pull request. Integration tests (`npm run test:vscode`) need a display and run locally.
 
 ## Development
 

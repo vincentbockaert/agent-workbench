@@ -16,8 +16,8 @@ describe('work index', function () {
 
   beforeEach(async () => {
     ({ parent, repo } = await makeRepo());
-    await git(repo, ['worktree', 'add', '-q', '-b', 'feature/HDO-7-a', path.join(parent, 'repo-hdo-7')]);
-    await git(repo, ['branch', 'feat/hdo-7-b']);
+    await git(repo, ['worktree', 'add', '-q', '-b', 'feature/PROJ-7-a', path.join(parent, 'repo-proj-7')]);
+    await git(repo, ['branch', 'feat/proj-7-b']);
   });
 
   afterEach(() => {
@@ -30,7 +30,7 @@ describe('work index', function () {
 
     assert.equal(w.repo.root, repo);
     assert.equal(w.baseRef, 'main');
-    assert.deepEqual(w.branches.sort(), ['feat/hdo-7-b', 'feature/HDO-7-a', 'main']);
+    assert.deepEqual(w.branches.sort(), ['feat/proj-7-b', 'feature/PROJ-7-a', 'main']);
     assert.equal(w.worktrees.length, 2);
   });
 
@@ -44,12 +44,12 @@ describe('work index', function () {
   it('keeps reading cached data until invalidated', async () => {
     const index = new WorkIndex(() => [info(repo)]);
     await index.ensure();
-    await git(repo, ['branch', 'hdo-7-late']);
+    await git(repo, ['branch', 'proj-7-late']);
 
-    assert.equal((await index.ensure())[0].branches.includes('hdo-7-late'), false);
+    assert.equal((await index.ensure())[0].branches.includes('proj-7-late'), false);
     index.invalidate();
     assert.equal(index.peek(), undefined);
-    assert.equal((await index.ensure())[0].branches.includes('hdo-7-late'), true);
+    assert.equal((await index.ensure())[0].branches.includes('proj-7-late'), true);
   });
 
   it('invalidates a single repo and keeps the others', async () => {
@@ -105,13 +105,13 @@ describe('work index', function () {
   describe('manualBranchesForTicket', () => {
     it('collects key-matching branches of every repo, with their checkouts and base', async () => {
       const index = new WorkIndex(() => [info(repo)]);
-      const found = manualBranchesForTicket(await index.ensure(), { source: 'Jira HDO', id: 'HDO-7' }, []);
+      const found = manualBranchesForTicket(await index.ensure(), { source: 'Jira PROJ', id: 'PROJ-7' }, []);
 
       assert.deepEqual(
         found.map((m) => [m.branch, m.worktree && path.basename(m.worktree), m.baseRef]),
         [
-          ['feat/hdo-7-b', undefined, 'main'],
-          ['feature/HDO-7-a', 'repo-hdo-7', 'main'],
+          ['feat/proj-7-b', undefined, 'main'],
+          ['feature/PROJ-7-a', 'repo-proj-7', 'main'],
         ],
       );
       assert.equal(found[0].repo.root, repo);
@@ -119,7 +119,7 @@ describe('work index', function () {
 
     it('is empty for a ticket nothing matches', async () => {
       const index = new WorkIndex(() => [info(repo)]);
-      assert.deepEqual(manualBranchesForTicket(await index.ensure(), { source: 'Jira HDO', id: 'HDO-8' }, []), []);
+      assert.deepEqual(manualBranchesForTicket(await index.ensure(), { source: 'Jira PROJ', id: 'PROJ-8' }, []), []);
     });
   });
 });

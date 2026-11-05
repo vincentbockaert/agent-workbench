@@ -74,12 +74,12 @@ suite('changes', () => {
   test('a branch without a checkout opens read-only git content on both sides', async () => {
     const repo = path.join(parent, 'repo');
     const temp = path.join(parent, 'repo.worktrees', 'tmp');
-    git(repo, 'worktree', 'add', '-q', '-b', 'feature/HDO-1-x', temp, 'main');
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature/PROJ-1-x', temp, 'main');
     fs.writeFileSync(path.join(temp, 'a.txt'), 'branch line\n');
     git(temp, 'commit', '-q', '-am', 'on branch');
     git(repo, 'worktree', 'remove', temp);
 
-    const target = { repo, branch: 'feature/HDO-1-x', baseRef: 'main' };
+    const target = { repo, branch: 'feature/PROJ-1-x', baseRef: 'main' };
     await vscode.commands.executeCommand('agentWorkbench.openBranchChange', { kind: 'branchChange', target, file: { path: 'a.txt', status: 'modified' } });
 
     const input = vscode.window.tabGroups.activeTabGroup.activeTab.input;

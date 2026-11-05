@@ -526,7 +526,7 @@
     "typecheck": "tsc --noEmit",
     "test": "mocha",
     "test:vscode": "npm run build && vscode-test",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license"
+    "package": "npm run build && vsce package --no-dependencies --skip-license"
   },
   "devDependencies": {
     "@types/mocha": "10.0.10",
@@ -539,5 +539,9 @@
     "mocha": "12.0.3",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vincentbockaert/agent-workbench.git"
   }
 }
