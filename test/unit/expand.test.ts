@@ -1,5 +1,5 @@
 import { strict as assert } from 'assert';
-import { expandSources } from '../../src/tickets/expand';
+import { candidateRepos, expandSources } from '../../src/tickets/expand';
 import { RepoInfo } from '../../src/git/repos';
 import { TicketSourceConfig } from '../../src/tickets/source';
 import manifest from '../../package.json';
@@ -66,5 +66,35 @@ describe('ticketSources schema', () => {
   it('offers the scope field with its two values', () => {
     const props = manifest.contributes.configuration.properties['agentWorkbench.ticketSources'].items.properties as Record<string, any>;
     assert.deepEqual(props.scope.enum, ['repo', 'workspace']);
+  });
+});
+
+describe('candidateRepos', () => {
+  const repos = [repo('a'), repo('b')];
+  const sources = expandSources([gh, jira], repos, '/w');
+
+  it('is the ticket\'s own repo for a repo-scoped source', () => {
+    assert.deepEqual(candidateRepos('GitHub · b', sources, repos).map((r) => r.name), ['b']);
+  });
+
+  it('is every repo for a workspace-scoped source, which belongs to no repo', () => {
+    assert.deepEqual(candidateRepos('Jira', sources, repos).map((r) => r.name), ['a', 'b']);
+  });
+
+  it('is every repo for an ad-hoc session (no source)', () => {
+    assert.deepEqual(candidateRepos(undefined, sources, repos).map((r) => r.name), ['a', 'b']);
+  });
+
+  it('is every repo for a source that is no longer configured', () => {
+    assert.deepEqual(candidateRepos('Gone', sources, repos).map((r) => r.name), ['a', 'b']);
+  });
+
+  it('is the only repo of a single-repo window', () => {
+    const one = [repo('only')];
+    assert.deepEqual(candidateRepos('GitHub', expandSources([gh], one, '/w/only'), one).map((r) => r.name), ['only']);
+  });
+
+  it('is empty when no repo was found', () => {
+    assert.deepEqual(candidateRepos(undefined, [], []), []);
   });
 });

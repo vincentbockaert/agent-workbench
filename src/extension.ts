@@ -13,7 +13,7 @@ import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WOR
 import { Session, sessionsInRepos, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshAll } from './tickets/snapshot';
-import { expandSources } from './tickets/expand';
+import { candidateRepos, expandSources } from './tickets/expand';
 import { discoverRepos, RepoInfo } from './git/repos';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment } from './time/commands';
@@ -38,19 +38,10 @@ function commandCwd(): string {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
 }
 
-// The repo of the first workspace folder; sessions of other repos are hidden in this window.
-async function currentRepo(): Promise<{ root: string; branch: string } | undefined> {
-  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!folder) {
-    return undefined;
-  }
-  try {
-    const root = (await git(folder, ['rev-parse', '--show-toplevel'])).trim();
-    const branch = (await git(root, ['branch', '--show-current'])).trim() || 'HEAD';
-    return { root, branch };
-  } catch {
-    return undefined;
-  }
+// A repo with the branch it is on, which new sessions branch from.
+async function repoWithBranch(repo: RepoInfo): Promise<{ root: string; branch: string }> {
+  const branch = (await git(repo.root, ['branch', '--show-current'])).trim() || 'HEAD';
+  return { root: repo.root, branch };
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -60,10 +51,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showWarningMessage(`Agent Workbench: ${store.warning}`);
   }
   // Repos found in the workspace folders (a folder that is a repo, or the repos directly inside it).
-  const repos: RepoInfo[] = await discoverRepos(workspacePaths());
+  let repos: RepoInfo[] = await discoverRepos(workspacePaths());
   // Configured sources resolved per repo / workspace; their (effective) names key snapshots and tickets.
   const effectiveSources = () => expandSources(ticketSources(), repos, commandCwd());
   const sessionsHere = () => sessionsInRepos(store.list(), repos);
+  // Looks again for repos (a folder was added, or a repo was cloned into the parent folder).
+  const rediscover = async (): Promise<void> => {
+    repos = await discoverRepos(workspacePaths());
+    changed();
+  };
   // The workbench's own ticket status; trackers are only ever read.
   const workflow = new WorkflowStore(path.join(context.globalStorageUri.fsPath, 'ticket-status.json'));
   if (workflow.warning) {
@@ -194,12 +190,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   async function newSession(opts: { ticket?: Ticket; adhoc?: { title: string; description: string } }): Promise<void> {
-    const repo = await currentRepo();
-    if (!repo) {
-      void vscode.window.showErrorMessage('Agent Workbench: open a folder inside a git repository to start sessions.');
+    const candidates = candidateRepos(opts.ticket?.source, effectiveSources(), repos);
+    if (candidates.length === 0) {
+      void vscode.window.showErrorMessage('Agent Workbench: open a git repository, or a folder containing git repositories, to start sessions.');
       return;
     }
     try {
+      // The ticket's own repo; for tickets of a workspace source and ad-hoc sessions, ask when there are several.
+      const chosen =
+        candidates.length === 1
+          ? candidates[0]
+          : (await vscode.window.showQuickPick(
+              candidates.map((r) => ({ label: r.name, description: r.root, repo: r })),
+              { title: 'In which repository?', placeHolder: 'The session gets its own worktree and branch in this repository.' },
+            ))?.repo;
+      if (!chosen) {
+        return;
+      }
+      const repo = await repoWithBranch(chosen);
       // Show the agent choice with the branch and folder it will create, before creating anything.
       const cfg = vscode.workspace.getConfiguration('agentWorkbench');
       const predicted = await nextSessionId(repo.root, sessionSlugBase(opts.ticket, opts.adhoc?.title), store);
@@ -350,6 +358,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('agentWorkbench.refreshTickets', () =>
       vscode.window.withProgress({ location: { viewId: WORK_VIEW_ID } }, async () => {
         const now = new Date();
+        repos = await discoverRepos(workspacePaths());
         await refreshAll(effectiveSources(), snapshotDir, now);
         changed();
       }),
@@ -484,6 +493,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await offerDone(s);
       changed();
     }),
+
+    vscode.workspace.onDidChangeWorkspaceFolders(() => void rediscover()),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentWorkbench.ticketSources')) {

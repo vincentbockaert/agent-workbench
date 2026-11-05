@@ -35,7 +35,7 @@
     "viewsWelcome": [
       {
         "view": "agentWorkbench.work",
-        "contents": "No ticket sources configured.\nA source is a command that prints JSON, such as `gh issue list --json number,title,state,url`.\n[Configure ticket sources](command:workbench.action.openSettingsJson)\n[New Ad-hoc Session](command:agentWorkbench.newAdhocSession)"
+        "contents": "No ticket sources configured.\nA source is a command that prints JSON, such as `gh issue list --json number,title,state,url`.\nOpen a git repository, or a folder that contains several, to start sessions.\n[Configure ticket sources](command:workbench.action.openSettingsJson)\n[New Ad-hoc Session](command:agentWorkbench.newAdhocSession)"
       }
     ],
     "commands": [

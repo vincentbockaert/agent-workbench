@@ -28,3 +28,10 @@ export function expandSources(configs: TicketSourceConfig[], repos: RepoInfo[], 
   }
   return out;
 }
+
+// The repos a new session for a ticket of `sourceName` (or an ad-hoc session, `undefined`) may start in:
+// the ticket's own repo for a repo-scoped source, otherwise every repo (the caller asks when there are several).
+export function candidateRepos(sourceName: string | undefined, sources: EffectiveSource[], repos: RepoInfo[]): RepoInfo[] {
+  const own = sourceName === undefined ? undefined : sources.find((s) => s.cfg.name === sourceName)?.repo;
+  return own ? [own] : repos;
+}
