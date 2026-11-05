@@ -189,4 +189,4 @@ npm run package      # build the .vsix
 
 ## License
 
-[Apache License 2.0](LICENSE). The shipped extension bundles no third-party code; the npm packages in `package-lock.json` are build and test tools only, and are not redistributed.
+[Apache License 2.0](LICENSE), copyright 2026 Vincent Bockaert (see [NOTICE](NOTICE)). The shipped extension bundles no third-party code; the npm packages in `package-lock.json` are build and test tools only, and are not redistributed.
