@@ -90,6 +90,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
       case 'today': {
         const sum = sumTotals(this.today());
         return [
+          { kind: 'figure', label: 'Timer', ms: sum.timerMs, icon: 'play-circle', color: 'charts.green', tooltip: 'Time on the work-item clock: the ticket you were working in, one at a time. This is what is booked.' },
           { kind: 'figure', label: 'Elapsed', ms: sum.elapsedMs, icon: 'watch', color: 'descriptionForeground', tooltip: 'You or an agent worked on a ticket; overlaps within a ticket counted once.' },
           { kind: 'figure', label: 'You', ms: sum.yourMs, icon: 'person', color: 'charts.blue', tooltip: 'Time you were active in sessions, plus adjustments.' },
           { kind: 'figure', label: 'Agents', ms: sum.agentMs, icon: 'hubot', color: 'charts.purple', tooltip: 'Time agents were working.' },

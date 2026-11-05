@@ -114,7 +114,7 @@ describe('hub', () => {
     it('handles a ticket without sessions or time', () => {
       const m = buildTicketHub(input({ sessions: [], statuses: {}, changes: {}, events: [] }));
       assert.deepEqual(m.sessions, []);
-      assert.deepEqual(m.week, { yourMs: 0, agentMs: 0, elapsedMs: 0, bookedMs: 0 });
+      assert.deepEqual(m.week, { yourMs: 0, agentMs: 0, elapsedMs: 0, timerMs: 0, bookedMs: 0 });
       assert.deepEqual(m.timeline.you, []);
     });
   });

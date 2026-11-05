@@ -7,7 +7,7 @@ export const PERIOD_IDS: PeriodId[] = ['today', 'yesterday', 'thisWeek', 'lastWe
 export const ROUNDING_CHOICES = [0, 15, 30, 60];
 
 const PERIOD_LABELS: Record<PeriodId, string> = { today: 'Today', yesterday: 'Yesterday', thisWeek: 'This week', lastWeek: 'Last week', thisMonth: 'This month' };
-const BOOKED_LABELS: Record<BookedFigure, string> = { elapsed: 'Elapsed (you or agents)', your: 'Your time only', agent: 'Agent time only' };
+const BOOKED_LABELS: Record<BookedFigure, string> = { timer: 'Timer (the work-item clock)', elapsed: 'Elapsed (you or agents)', your: 'Your time only', agent: 'Agent time only' };
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -49,13 +49,13 @@ export interface ReportViewDay {
   label: string; // "Tue, Nov 3"
   isToday: boolean;
   rows: ReportViewRow[];
-  totals: { yourMs: number; agentMs: number; elapsedMs: number; bookedMs: number };
+  totals: { yourMs: number; agentMs: number; elapsedMs: number; timerMs: number; bookedMs: number };
 }
 
 export interface ReportView {
   title: string; // "Week 45 · Nov 2 – Nov 8"
   days: ReportViewDay[]; // only days with time
-  totals: { yourMs: number; agentMs: number; elapsedMs: number; bookedMs: number };
+  totals: { yourMs: number; agentMs: number; elapsedMs: number; timerMs: number; bookedMs: number };
   ticketCount: number;
   eventCount: number; // events dated inside the period
   openCount: number; // rows "Mark as entered…" would offer
@@ -64,11 +64,12 @@ export interface ReportView {
 const dayLabel = (d: Date) => `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 const shortDate = (d: Date) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 
-function sum(rows: { yourMs: number; agentMs: number; elapsedMs: number; bookedMs: number }[]) {
-  return rows.reduce((t, r) => ({ yourMs: t.yourMs + r.yourMs, agentMs: t.agentMs + r.agentMs, elapsedMs: t.elapsedMs + r.elapsedMs, bookedMs: t.bookedMs + r.bookedMs }), {
+function sum(rows: { yourMs: number; agentMs: number; elapsedMs: number; timerMs: number; bookedMs: number }[]) {
+  return rows.reduce((t, r) => ({ yourMs: t.yourMs + r.yourMs, agentMs: t.agentMs + r.agentMs, elapsedMs: t.elapsedMs + r.elapsedMs, timerMs: t.timerMs + r.timerMs, bookedMs: t.bookedMs + r.bookedMs }), {
     yourMs: 0,
     agentMs: 0,
     elapsedMs: 0,
+    timerMs: 0,
     bookedMs: 0,
   });
 }
@@ -155,10 +156,10 @@ export function renderTimeReport(view: ReportView, state: ReportState, nonce: st
         d.rows
           .map(
             (r) =>
-              `<tr><td class="mono">${esc(r.ticket)}</td><td>${esc(r.title)}</td><td class="num">${f(r.yourMs)}</td><td class="num">${f(r.agentMs)}</td><td class="num">${f(r.elapsedMs)}</td><td class="num booked">${f(r.bookedMs)}</td><td>${entryCell(r.entry)}</td></tr>`,
+              `<tr><td class="mono">${esc(r.ticket)}</td><td>${esc(r.title)}</td><td class="num">${f(r.yourMs)}</td><td class="num">${f(r.agentMs)}</td><td class="num">${f(r.elapsedMs)}</td><td class="num">${f(r.timerMs)}</td><td class="num booked">${f(r.bookedMs)}</td><td>${entryCell(r.entry)}</td></tr>`,
           )
           .join('') +
-        `<tr class="subtotal"><td></td><td class="muted">Day total</td><td class="num">${f(d.totals.yourMs)}</td><td class="num">${f(d.totals.agentMs)}</td><td class="num">${f(d.totals.elapsedMs)}</td><td class="num booked">${f(d.totals.bookedMs)}</td><td></td></tr>`,
+        `<tr class="subtotal"><td></td><td class="muted">Day total</td><td class="num">${f(d.totals.yourMs)}</td><td class="num">${f(d.totals.agentMs)}</td><td class="num">${f(d.totals.elapsedMs)}</td><td class="num">${f(d.totals.timerMs)}</td><td class="num booked">${f(d.totals.bookedMs)}</td><td></td></tr>`,
     )
     .join('');
   const t = view.totals;
@@ -166,9 +167,9 @@ export function renderTimeReport(view: ReportView, state: ReportState, nonce: st
     view.days.length === 0
       ? '<p class="muted">No time recorded in this period.</p>'
       : `<div class="table"><table>
-<thead><tr><th>Ticket</th><th>Title</th><th class="num">You</th><th class="num">Agents</th><th class="num">Elapsed</th><th class="num">Booked</th><th>Entered</th></tr></thead>
+<thead><tr><th>Ticket</th><th>Title</th><th class="num">You</th><th class="num">Agents</th><th class="num">Elapsed</th><th class="num">Timer</th><th class="num">Booked</th><th>Entered</th></tr></thead>
 <tbody>${body}</tbody>
-<tfoot><tr><td>Total</td><td></td><td class="num you">${f(t.yourMs)}</td><td class="num agents">${f(t.agentMs)}</td><td class="num">${f(t.elapsedMs)}</td><td class="num booked">${f(t.bookedMs)}</td><td></td></tr></tfoot>
+<tfoot><tr><td>Total</td><td></td><td class="num you">${f(t.yourMs)}</td><td class="num agents">${f(t.agentMs)}</td><td class="num">${f(t.elapsedMs)}</td><td class="num">${f(t.timerMs)}</td><td class="num booked">${f(t.bookedMs)}</td><td></td></tr></tfoot>
 </table></div>`;
 
   return `<!DOCTYPE html>
@@ -250,7 +251,7 @@ export function parseReportMessage(msg: unknown): ReportMessage | undefined {
     case 'setPeriod':
       return PERIOD_IDS.includes(m.period as PeriodId) ? { command: 'setPeriod', period: m.period as PeriodId } : undefined;
     case 'setBooked':
-      return m.booked === 'elapsed' || m.booked === 'your' || m.booked === 'agent' ? { command: 'setBooked', booked: m.booked } : undefined;
+      return m.booked === 'timer' || m.booked === 'elapsed' || m.booked === 'your' || m.booked === 'agent' ? { command: 'setBooked', booked: m.booked } : undefined;
     case 'setRounding': {
       const n = Number(m.roundToMinutes);
       return ROUNDING_CHOICES.includes(n) ? { command: 'setRounding', roundToMinutes: n } : undefined;

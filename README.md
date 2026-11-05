@@ -168,13 +168,29 @@ Change it any time from the ticket's context menu or the ticket tab. The tracker
 
 All time comes from an append-only log (`timelog/YYYY-MM.jsonl`); totals are recomputed from it, so the same log always gives the same numbers.
 
+### The work-item clock (what is booked)
+
+Timers start when you start work, and follow you between tickets:
+
+- **Start:** **Work on this**, **Open Agent**, **Start/Resume Agent** and **Open Shell** put the ticket on the clock. **Start Timer** / **Stop Timer** in the ticket's or session's context menu do it by hand, and the status bar item (left) offers **Start a timer on…** for any ticket.
+- **Several tickets, one active:** the ticket you are working in (its terminal, session files or prompts) is the active one, shown as `▶`; the others on the clock are paused, `⏸`. When your focus stays on another ticket for about 10 seconds, the clock moves there, backdated to when you switched. Time is never counted twice, so the per-ticket figures add up to what you actually worked.
+- **Unrelated focus** (a browser, another editor) does not stop the clock, so thinking and reading time count.
+- **Stop:** the status bar menu, **Stop Timer**, or finishing/deleting the ticket's last session.
+- **Are you still there?** After `agentWorkbench.time.clockIdleMinutes` (15) without any activity in VS Code, a question offers **Keep going** or **Stop at HH:MM** (your last activity). It is not asked while an agent works on the active ticket. All timers also stop at `agentWorkbench.time.autoStopAt` (19:00; empty turns it off).
+- **Sleep and crashes:** a silence of more than 5 minutes between the clock's heartbeats (laptop asleep, VS Code killed) is a pause, not work. A restart does not resume the clock; start again with Open Agent, Open Shell or the status bar.
+- **Several windows:** the clock is shared by the windows of one VS Code flavor through the log; a second window can only follow tickets it started itself.
+
+### Evidence figures
+
+Next to the timer, three figures show what the extension could see:
+
 - **Agent time:** from "working" until the agent waits, finishes or exits.
 - **Your time (strict):** only while you do something in a session (edit, select or scroll in its files, switch to its terminal, run a command in its shell, submit or answer a prompt). A gap longer than `agentWorkbench.time.idleMinutes` (5) ends the interval at your last activity.
 - **Elapsed:** you or an agent; parallel sessions on one ticket count once.
-- Intervals left open (e.g. a crash) close at the last recorded event, never "now".
-- **Adjust Time…** adds corrections (e.g. a call) as new events; nothing is ever edited.
 
-`agentWorkbench.time.bookedFigure` chooses what is booked (elapsed, your or agent time); `agentWorkbench.time.roundToMinutes` rounds it up per ticket per day in reports only.
+Intervals left open (e.g. a crash) close at the last recorded event, never "now". **Adjust Time…** adds corrections (e.g. a call) as new events and counts toward every figure; nothing is ever edited.
+
+`agentWorkbench.time.bookedFigure` chooses what is booked: `timer` (default), `elapsed`, `your` or `agent`. Days from before the clock existed (no clock events at all) book elapsed time, so history does not turn into zeros. `agentWorkbench.time.roundToMinutes` rounds up per ticket per day in reports only.
 
 ### Time report
 
@@ -214,7 +230,7 @@ npm run package      # build the .vsix
 
 ## Known limits
 
-- Your time cannot see typing inside an agent's terminal; it counts from submitting or answering a prompt.
+- Your time (the evidence figure) cannot see typing inside an agent's terminal; it counts from submitting or answering a prompt. The timer does not have this limit, because it runs until you stop it.
 - Codex has no approval hook, so it never shows "needs input".
 - Ticket tabs and the time report redraw fully when their numbers change, which resets scrolling.
 - "Mark as entered" cannot be undone from the UI yet.

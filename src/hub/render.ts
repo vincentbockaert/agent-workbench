@@ -93,7 +93,7 @@ tr.attention td{background:color-mix(in srgb,var(--vscode-charts-orange) 9%,tran
 td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px}
 .add{color:var(--vscode-gitDecoration-addedResourceForeground)}.del{color:var(--vscode-gitDecoration-deletedResourceForeground)}
 .row{display:flex;flex-wrap:wrap;gap:24px}.row>section{flex:1 1 340px;min-width:0}
-.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
 .card{border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
 .card b{font-size:20px;font-weight:600}
 .days{height:130px;border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 16px 8px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;align-items:end}
@@ -102,7 +102,7 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
 .lanes{display:grid;grid-template-columns:56px minmax(0,1fr);gap:6px 10px;align-items:center;font-size:12px}
 .lane{position:relative;height:14px;border-radius:3px;background:var(--vscode-input-background)}
 .lane span{position:absolute;top:0;bottom:0;border-radius:3px}
-.you{background:var(--vscode-charts-blue)}.agents{background:var(--vscode-charts-purple)}
+.you{background:var(--vscode-charts-blue)}.agents{background:var(--vscode-charts-purple)}.timer{background:var(--vscode-charts-green)}
 .axis{position:relative;height:14px;font-size:11px;color:var(--vscode-descriptionForeground)}.axis span{position:absolute;transform:translateX(-50%)}
 </style>
 </head>
@@ -139,7 +139,8 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
   <section>
     <h2>THIS WEEK ON THIS TICKET</h2>
     <div class="cards">
-      <div class="card"><span class="muted">Elapsed</span><b>${formatDuration(week.elapsedMs)}</b><span class="muted small">${formatDuration(week.bookedMs)} booked</span></div>
+      <div class="card"><span class="muted">Timer</span><b>${formatDuration(week.timerMs)}</b><span class="muted small">${formatDuration(week.bookedMs)} booked</span></div>
+      <div class="card"><span class="muted">Elapsed</span><b>${formatDuration(week.elapsedMs)}</b><span class="muted small">you or an agent</span></div>
       <div class="card"><span class="muted">You</span><b style="color:var(--vscode-charts-blue)">${formatDuration(week.yourMs)}</b><span class="muted small">incl. adjustments</span></div>
       <div class="card"><span class="muted">Agents</span><b style="color:var(--vscode-charts-purple)">${formatDuration(week.agentMs)}</b><span class="muted small">overlaps counted once</span></div>
     </div>
@@ -153,6 +154,7 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
 <section>
   <h2>TODAY'S TIMELINE</h2>
   <div class="lanes">
+    <span class="muted">Timer</span><div class="lane">${spans(timeline.timer, 'timer')}</div>
     <span class="muted">You</span><div class="lane">${spans(timeline.you, 'you')}</div>
     <span class="muted">Agents</span><div class="lane">${spans(timeline.agents, 'agents')}</div>
     <span></span><div class="axis">${hours}</div>

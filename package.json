@@ -507,12 +507,14 @@
         "agentWorkbench.time.bookedFigure": {
           "type": "string",
           "enum": [
+            "timer",
             "elapsed",
             "your",
             "agent"
           ],
-          "default": "elapsed",
+          "default": "timer",
           "enumDescriptions": [
+            "Time on the work-item clock: the ticket you were working in, one at a time. Days before the clock existed fall back to elapsed time.",
             "Time you or an agent worked on the ticket (overlaps counted once).",
             "Only time you were active in the ticket's sessions, plus adjustments.",
             "Only time an agent was working on the ticket."

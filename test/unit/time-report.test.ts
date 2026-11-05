@@ -120,6 +120,33 @@ describe('time-tracking', () => {
       assert.deepEqual(rows.map((r) => r.bookedMs), [0, 0]);
     });
 
+    describe('the timer figure', () => {
+      const withClock = [
+        ...events,
+        at('2026-11-05T10:00:00Z', 'clock-on', 'GitHub:42', 'clock'),
+        at('2026-11-05T10:04:00Z', 'clock-beat', '', 'clock'), // beats keep the clock alive; see the gap rule
+        at('2026-11-05T10:08:00Z', 'clock-beat', '', 'clock'),
+        at('2026-11-05T10:10:00Z', 'clock-off', 'GitHub:42', 'clock'),
+      ];
+      const timer = { ...opts, booked: 'timer' as const };
+
+      it('is booked on a day that used the clock, and rounded up like the other figures', () => {
+        const [row] = buildReport(withClock, [DAY2], titles, timer);
+        assert.deepEqual([row.timerMs / MIN, row.agentMs / MIN, row.bookedMs / MIN], [10, 1, 15]);
+      });
+
+      it('books elapsed time on days before the clock existed, so history is not zero', () => {
+        const rows = buildReport(withClock, [DAY1], titles, timer);
+        assert.deepEqual(rows.map((r) => [r.timerMs / MIN, r.bookedMs / MIN]), [[20, 30], [7, 15]]);
+      });
+
+      it('books nothing for a ticket that only had agent time on a day that used the clock', () => {
+        const events2 = [...withClock, at('2026-11-05T11:00:00Z', 'agent-working', 'Jira:P-1', 's2'), at('2026-11-05T11:30:00Z', 'agent-idle', 'Jira:P-1', 's2')];
+        const rows = buildReport(events2, [DAY2], titles, timer);
+        assert.deepEqual(rows.map((r) => [r.ticket, r.agentMs / MIN, r.bookedMs / MIN]), [['GitHub:42', 1, 15], ['Jira:P-1', 30, 0]]);
+      });
+    });
+
     it('falls back to the ticket key when no title is known', () => {
       assert.equal(buildReport(events, [DAY1], {}, opts)[0].title, 'GitHub:42');
     });
@@ -129,9 +156,9 @@ describe('time-tracking', () => {
       assert.equal(
         csv,
         [
-          'date,ticket,title,your_minutes,agent_minutes,elapsed_minutes,booked_minutes',
-          '2026-11-04,GitHub:42,"Crash, ""empty"" config",0,20,20,30',
-          '2026-11-04,Jira:P-1,Export CSV,0,7,7,15',
+          'date,ticket,title,your_minutes,agent_minutes,elapsed_minutes,timer_minutes,booked_minutes',
+          '2026-11-04,GitHub:42,"Crash, ""empty"" config",0,20,20,20,30',
+          '2026-11-04,Jira:P-1,Export CSV,0,7,7,7,15',
           '',
         ].join('\n'),
       );
@@ -141,8 +168,8 @@ describe('time-tracking', () => {
       const md = renderMarkdown(buildReport(events, [DAY1], titles, opts), opts);
       assert.match(md, /^## 2026-11-04$/m);
       assert.match(md, /Booked \(elapsed, rounded up to 15m\)/);
-      assert.match(md, /\| GitHub:42 \| Crash, "empty" config \| 0m \| 20m \| 20m \| 30m \|/);
-      assert.match(md, /\| \*\*Total\*\* \| \| 0m \| 27m \| 27m \| 45m \|/);
+      assert.match(md, /\| GitHub:42 \| Crash, "empty" config \| 0m \| 20m \| 20m \| 20m \| 30m \|/);
+      assert.match(md, /\| \*\*Total\*\* \| \| 0m \| 27m \| 27m \| 27m \| 45m \|/);
     });
 
     it('says so when there is nothing to report', () => {

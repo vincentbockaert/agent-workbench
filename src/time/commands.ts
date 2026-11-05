@@ -7,7 +7,7 @@ export function reportOptions(): ReportOptions {
   const cfg = vscode.workspace.getConfiguration('agentWorkbench');
   return {
     idleMs: idleMs(),
-    booked: cfg.get<BookedFigure>('time.bookedFigure', 'elapsed'),
+    booked: cfg.get<BookedFigure>('time.bookedFigure', 'timer'),
     roundToMinutes: cfg.get<number>('time.roundToMinutes', 15),
   };
 }
@@ -18,7 +18,7 @@ export function displayedMs(totals: Totals | undefined): number {
     return 0;
   }
   const figure = reportOptions().booked;
-  return figure === 'your' ? totals.yourMs : figure === 'agent' ? totals.agentMs : totals.elapsedMs;
+  return figure === 'timer' ? totals.timerMs : figure === 'your' ? totals.yourMs : figure === 'agent' ? totals.agentMs : totals.elapsedMs;
 }
 
 // Asks for a correction in minutes (negative to subtract) and an optional note.

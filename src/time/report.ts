@@ -1,7 +1,7 @@
 import { ComputeOptions, roundUpMs, Totals, totalsByTicket } from './compute';
 import { TimeEvent } from './events';
 
-export type BookedFigure = 'elapsed' | 'your' | 'agent';
+export type BookedFigure = 'timer' | 'elapsed' | 'your' | 'agent';
 
 export interface ReportDay {
   label: string; // e.g. "2026-11-04"
@@ -16,6 +16,7 @@ export interface ReportRow {
   yourMs: number;
   agentMs: number;
   elapsedMs: number;
+  timerMs: number;
   bookedMs: number;
 }
 
@@ -25,7 +26,7 @@ export interface ReportOptions extends ComputeOptions {
 }
 
 const MIN = 60_000;
-const FIGURE: Record<BookedFigure, keyof Totals> = { elapsed: 'elapsedMs', your: 'yourMs', agent: 'agentMs' };
+const FIGURE: Record<BookedFigure, keyof Totals> = { timer: 'timerMs', elapsed: 'elapsedMs', your: 'yourMs', agent: 'agentMs' };
 
 // Local calendar days [from, to] inclusive, each from local midnight to the next (DST-safe).
 export function localDays(from: Date, to: Date): ReportDay[] {
@@ -67,24 +68,24 @@ export function renderMarkdown(rows: ReportRow[], opts: ReportOptions): string {
     return '# Time report\n\nNo time recorded in this period.\n';
   }
   const rounding = opts.roundToMinutes > 0 ? `, rounded up to ${opts.roundToMinutes}m` : '';
-  const header = `| Ticket | Title | Your | Agent | Elapsed | Booked (${opts.booked}${rounding}) |\n|---|---|---|---|---|---|`;
+  const header = `| Ticket | Title | Your | Agent | Elapsed | Timer | Booked (${opts.booked}${rounding}) |\n|---|---|---|---|---|---|---|`;
   const out = ['# Time report', ''];
   for (const day of [...new Set(rows.map((r) => r.day))]) {
     const dayRows = rows.filter((r) => r.day === day);
     out.push(`## ${day}`, '', header);
     for (const r of dayRows) {
-      out.push(`| ${r.ticket} | ${r.title.replace(/\|/g, '\\|')} | ${formatDuration(r.yourMs)} | ${formatDuration(r.agentMs)} | ${formatDuration(r.elapsedMs)} | ${formatDuration(r.bookedMs)} |`);
+      out.push(`| ${r.ticket} | ${r.title.replace(/\|/g, '\\|')} | ${formatDuration(r.yourMs)} | ${formatDuration(r.agentMs)} | ${formatDuration(r.elapsedMs)} | ${formatDuration(r.timerMs)} | ${formatDuration(r.bookedMs)} |`);
     }
     const sum = (k: keyof ReportRow) => dayRows.reduce((acc, r) => acc + (r[k] as number), 0);
-    out.push(`| **Total** | | ${formatDuration(sum('yourMs'))} | ${formatDuration(sum('agentMs'))} | ${formatDuration(sum('elapsedMs'))} | ${formatDuration(sum('bookedMs'))} |`, '');
+    out.push(`| **Total** | | ${formatDuration(sum('yourMs'))} | ${formatDuration(sum('agentMs'))} | ${formatDuration(sum('elapsedMs'))} | ${formatDuration(sum('timerMs'))} | ${formatDuration(sum('bookedMs'))} |`, '');
   }
   return out.join('\n');
 }
 
 export function renderCsv(rows: ReportRow[]): string {
-  const lines = ['date,ticket,title,your_minutes,agent_minutes,elapsed_minutes,booked_minutes'];
+  const lines = ['date,ticket,title,your_minutes,agent_minutes,elapsed_minutes,timer_minutes,booked_minutes'];
   for (const r of rows) {
-    const mins = [r.yourMs, r.agentMs, r.elapsedMs, r.bookedMs].map((ms) => Math.round(ms / MIN));
+    const mins = [r.yourMs, r.agentMs, r.elapsedMs, r.timerMs, r.bookedMs].map((ms) => Math.round(ms / MIN));
     lines.push([r.day, csvField(r.ticket), csvField(r.title), ...mins].join(','));
   }
   return lines.join('\n') + '\n';

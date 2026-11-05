@@ -84,7 +84,7 @@ describe('local-status', () => {
   });
 
   describe('booking marks', () => {
-    const row = (ticket: string, min: number, day = '2026-11-04'): ReportRow => ({ day, ticket, title: 't', yourMs: 0, agentMs: 0, elapsedMs: min * MIN, bookedMs: min * MIN });
+    const row = (ticket: string, min: number, day = '2026-11-04'): ReportRow => ({ day, ticket, title: 't', yourMs: 0, agentMs: 0, elapsedMs: min * MIN, timerMs: min * MIN, bookedMs: min * MIN });
     const entered = [{ ticket: 'Jira:P-1', day: '2026-11-04', minutes: 60, at: 't' }];
 
     it('is open until marked, entered when the minutes match, changed when they differ', () => {

@@ -39,9 +39,9 @@ export interface HubDay {
 export interface HubModel {
   ticket: HubTicket;
   sessions: HubSession[];
-  week: { yourMs: number; agentMs: number; elapsedMs: number; bookedMs: number };
+  week: { yourMs: number; agentMs: number; elapsedMs: number; timerMs: number; bookedMs: number };
   days: HubDay[];
-  timeline: { you: [number, number][]; agents: [number, number][]; hours: { label: string; at: number }[] }; // fractions 0..1
+  timeline: { you: [number, number][]; agents: [number, number][]; timer: [number, number][]; hours: { label: string; at: number }[] }; // fractions 0..1
 }
 
 export interface HubInput {
@@ -76,7 +76,7 @@ export function buildTicketHub(input: HubInput): HubModel {
     };
   });
 
-  const week = { yourMs: 0, agentMs: 0, elapsedMs: 0, bookedMs: 0 };
+  const week = { yourMs: 0, agentMs: 0, elapsedMs: 0, timerMs: 0, bookedMs: 0 };
   const days: HubDay[] = input.week.map((day) => {
     const t = totalsByTicket(events, day, opts)[ticket.key];
     // Booked per day, then summed: the same numbers the time report shows.
@@ -86,6 +86,7 @@ export function buildTicketHub(input: HubInput): HubModel {
     week.yourMs += t?.yourMs ?? 0;
     week.agentMs += t?.agentMs ?? 0;
     week.elapsedMs += t?.elapsedMs ?? 0;
+    week.timerMs += t?.timerMs ?? 0;
     return { label: WEEKDAYS[new Date(day.start).getDay()], elapsedMs: t?.elapsedMs ?? 0, isToday: now.getTime() >= day.start && now.getTime() < day.end };
   });
 
@@ -99,8 +100,8 @@ const HOUR = 3_600_000;
 // when work happened outside it. Hour labels every two hours from the window start.
 function timeline(input: HubInput): HubModel['timeline'] {
   const [today] = localDays(input.now, input.now);
-  const ivs = ticketIntervals(input.events, today, input.opts)[input.ticket.key] ?? { you: [], agents: [] };
-  const all = [...ivs.you, ...ivs.agents];
+  const ivs = ticketIntervals(input.events, today, input.opts)[input.ticket.key] ?? { you: [], agents: [], timer: [] };
+  const all = [...ivs.you, ...ivs.agents, ...ivs.timer];
   const startOfDay = new Date(today.start);
   const at = (h: number) => new Date(startOfDay.getFullYear(), startOfDay.getMonth(), startOfDay.getDate(), h).getTime();
   const first = Math.min(at(8), ...all.map(([a]) => a));
@@ -115,6 +116,7 @@ function timeline(input: HubInput): HubModel['timeline'] {
   return {
     you: ivs.you.map(([a, b]) => [frac(a), frac(b)]),
     agents: ivs.agents.map(([a, b]) => [frac(a), frac(b)]),
+    timer: ivs.timer.map(([a, b]) => [frac(a), frac(b)]),
     hours,
   };
 }
