@@ -447,6 +447,15 @@
                 "type": "string",
                 "description": "Shell command that prints the tickets as JSON."
               },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "repo",
+                  "workspace"
+                ],
+                "default": "repo",
+                "description": "\"repo\" (default): run in each repository found in the window. \"workspace\": run once in the window's root folder, for trackers that are not tied to a repository (Jira, Trello)."
+              },
               "itemsPath": {
                 "type": "string",
                 "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")."

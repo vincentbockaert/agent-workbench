@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { EffectiveSource } from './expand';
 import { fetchTickets, Ticket, TicketSourceConfig } from './source';
 
 // What the tree renders: the last successful fetch, plus the last error if the latest refresh failed.
@@ -48,6 +49,12 @@ export async function refreshSource(cfg: TicketSourceConfig, cwd: string, dir: s
   }
   writeSnapshot(dir, snap);
   return snap;
+}
+
+// Refreshes every effective source in its own folder. One failing source or repo never affects the others
+// (refreshSource records the error in that source's snapshot instead of throwing).
+export function refreshAll(sources: EffectiveSource[], dir: string, now: Date): Promise<Snapshot[]> {
+  return Promise.all(sources.map((s) => refreshSource(s.cfg, s.cwd, dir, now)));
 }
 
 export function describeAge(fetchedAt: string | undefined, now: Date): string {

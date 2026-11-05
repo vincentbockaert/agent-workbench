@@ -5,6 +5,8 @@ import { exec } from 'child_process';
 export interface TicketSourceConfig {
   name: string;
   listCmd: string;
+  // "repo" (default): run in each repo of the window. "workspace": run once in the window root (Jira, Trello, ...).
+  scope?: 'repo' | 'workspace';
   // Dotted path to the array of items when the command prints an object (e.g. "issues"); omit for a top-level array.
   itemsPath?: string;
   map: {

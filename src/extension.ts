@@ -10,9 +10,11 @@ import { TicketHubs } from './hub/panel';
 import { TimeReportPanel } from './report/panel';
 import { git } from './git/git';
 import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
-import { Session, sessionSlugBase } from './sessions/model';
+import { Session, sessionsInRepos, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
-import { readSnapshot, refreshSource } from './tickets/snapshot';
+import { readSnapshot, refreshAll } from './tickets/snapshot';
+import { expandSources } from './tickets/expand';
+import { discoverRepos, RepoInfo } from './git/repos';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment } from './time/commands';
 import { formatDuration } from './time/report';
@@ -25,6 +27,10 @@ import { WorkNode, WorkTreeProvider } from './ui/tree';
 
 function ticketSources(): TicketSourceConfig[] {
   return vscode.workspace.getConfiguration('agentWorkbench').get<TicketSourceConfig[]>('ticketSources', []);
+}
+
+function workspacePaths(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
 }
 
 // Ticket commands such as `gh issue list` depend on the current repo, so run them in the workspace.
@@ -53,8 +59,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (store.warning) {
     void vscode.window.showWarningMessage(`Agent Workbench: ${store.warning}`);
   }
-  const repoRoot = (await currentRepo())?.root;
-  const sessionsHere = () => store.list().filter((s) => s.repo === repoRoot);
+  // Repos found in the workspace folders (a folder that is a repo, or the repos directly inside it).
+  const repos: RepoInfo[] = await discoverRepos(workspacePaths());
+  // Configured sources resolved per repo / workspace; their (effective) names key snapshots and tickets.
+  const effectiveSources = () => expandSources(ticketSources(), repos, commandCwd());
+  const sessionsHere = () => sessionsInRepos(store.list(), repos);
   // The workbench's own ticket status; trackers are only ever read.
   const workflow = new WorkflowStore(path.join(context.globalStorageUri.fsPath, 'ticket-status.json'));
   if (workflow.warning) {
@@ -69,7 +78,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   };
-  const tree = new WorkTreeProvider(ticketSources, snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key));
+  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key));
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
   const focusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -96,7 +105,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const s of store.list()) {
       titles[ticketKey(s)] = s.ticket?.title ?? s.title ?? s.id;
     }
-    for (const cfg of ticketSources()) {
+    for (const { cfg } of effectiveSources()) {
       for (const t of readSnapshot(snapshotDir, cfg.name)?.tickets ?? []) {
         titles[ticketKeyOf(t.source, t.id)] = t.title;
       }
@@ -119,7 +128,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // A listed ticket from the snapshots (needed to start a session), by "<source>:<id>".
   const snapshotTicket = (key: string): Ticket | undefined => {
-    for (const cfg of ticketSources()) {
+    for (const { cfg } of effectiveSources()) {
       const t = readSnapshot(snapshotDir, cfg.name)?.tickets.find((t) => ticketKeyOf(t.source, t.id) === key);
       if (t) {
         return t;
@@ -341,7 +350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('agentWorkbench.refreshTickets', () =>
       vscode.window.withProgress({ location: { viewId: WORK_VIEW_ID } }, async () => {
         const now = new Date();
-        await Promise.all(ticketSources().map((cfg) => refreshSource(cfg, commandCwd(), snapshotDir, now)));
+        await refreshAll(effectiveSources(), snapshotDir, now);
         changed();
       }),
     ),
