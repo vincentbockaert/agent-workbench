@@ -16,7 +16,7 @@ Local only: the extension is `"private"` and not published.
 ```bash
 npm install
 npm run package
-code --install-extension agent-workbench-0.0.1.vsix
+code --install-extension agent-workbench-0.0.1.vsix   # use code-insiders for VS Code Insiders
 ```
 
 Or open this folder in VS Code and press F5 to run it in a development window.
@@ -105,6 +105,17 @@ Outside a workbench session `wb.js` does nothing, so global hooks are harmless.
 - Expand a session to see its **changed files**; click one for a diff against the commit the session started from.
 - **Create Pull Request** types `git push … && gh pr create …` into a terminal for you to review; it never runs it for you.
 - **Finish Session** removes the worktree and keeps the branch; it refuses while there are uncommitted changes. **Delete Session** can discard them after asking.
+
+## Manual work on a ticket
+
+A ticket lists, next to its sessions, **every local branch whose name carries the ticket key**, in every repo found in the window: `feature/HDO-1938-env-traffic`, `hdo-1938`, `feat/HDO-1938_x` all belong to `HDO-1938`. Work you started by hand, in a plain branch or in your own worktree, shows up without any setup.
+
+- Matching is case-insensitive and delimited by non-alphanumerics, so `HDO-19` never matches `hdo-1938`. Only Jira-style ids (`ABC-123`) are matched by name; tickets with numeric ids (GitHub `#12`) show their sessions only.
+- Expand a branch to see its changes against the merge base with the repo's default branch (`origin/HEAD`, else `main` or `master`); click a file for the same side-by-side diff as for sessions.
+- **Checked out** (in a worktree or the main working tree): the diff includes uncommitted and untracked work, and its right side is the real file, so you can edit it right there.
+- **No checkout**: only committed changes, shown read-only. **Open in New Worktree** (inline button or context menu) checks the branch out into `<repo>.worktrees/<branch>` without starting an agent; the branch then behaves like the case above.
+- Branches and worktrees are read once per **Refresh** (and at start-up), not on every click. A branch or worktree you create outside the workbench appears after the next Refresh.
+- Parallel work is not tied to how it was started: a session, a worktree you made yourself, or a plain branch all end up under the ticket.
 
 ## Workbench status
 
