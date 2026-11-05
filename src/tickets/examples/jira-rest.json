@@ -1,6 +1,7 @@
 {
   "name": "Jira",
   "listCmd": "curl -s -u \"$JIRA_EMAIL:$JIRA_API_TOKEN\" -G \"https://YOUR-SITE.atlassian.net/rest/api/3/search/jql\" --data-urlencode \"jql=assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC\" --data-urlencode \"fields=summary,status\" --data-urlencode \"maxResults=100\"",
+  "scope": "workspace",
   "itemsPath": "issues",
   "map": { "id": "key", "title": "fields.summary", "status": "fields.status.name" }
 }

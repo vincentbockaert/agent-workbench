@@ -1,5 +1,6 @@
 {
   "name": "Trello",
   "listCmd": "curl -s \"https://api.trello.com/1/lists/YOUR-LIST-ID/cards?fields=idShort,name,desc,shortUrl&key=$TRELLO_KEY&token=$TRELLO_TOKEN\"",
+  "scope": "workspace",
   "map": { "id": "idShort", "title": "name", "url": "shortUrl", "description": "desc" }
 }

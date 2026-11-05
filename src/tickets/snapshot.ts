@@ -51,10 +51,22 @@ export async function refreshSource(cfg: TicketSourceConfig, cwd: string, dir: s
   return snap;
 }
 
+// A parent folder can hold dozens of repos; this many commands run at once so a refresh does not hit rate limits.
+const REFRESH_CONCURRENCY = 4;
+
 // Refreshes every effective source in its own folder. One failing source or repo never affects the others
-// (refreshSource records the error in that source's snapshot instead of throwing).
-export function refreshAll(sources: EffectiveSource[], dir: string, now: Date): Promise<Snapshot[]> {
-  return Promise.all(sources.map((s) => refreshSource(s.cfg, s.cwd, dir, now)));
+// (refreshSource records the error in that source's snapshot instead of throwing). Results keep the input order.
+export async function refreshAll(sources: EffectiveSource[], dir: string, now: Date): Promise<Snapshot[]> {
+  const results: Snapshot[] = new Array(sources.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < sources.length) {
+      const i = next++;
+      results[i] = await refreshSource(sources[i].cfg, sources[i].cwd, dir, now);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(REFRESH_CONCURRENCY, sources.length) }, worker));
+  return results;
 }
 
 export function describeAge(fetchedAt: string | undefined, now: Date): string {

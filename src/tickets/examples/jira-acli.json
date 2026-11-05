@@ -1,5 +1,6 @@
 {
   "name": "Jira",
   "listCmd": "acli jira workitem search --jql \"assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC\" --json",
+  "scope": "workspace",
   "map": { "id": "key", "title": "fields.summary", "status": "fields.status.name" }
 }

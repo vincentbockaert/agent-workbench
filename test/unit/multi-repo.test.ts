@@ -46,6 +46,17 @@ describe('refreshAll with several repos', () => {
     assert.equal(readSnapshot(snapshots, 'Jira · alpha'), undefined);
   });
 
+  it('refreshes many repos, returning snapshots in the order of the sources', async () => {
+    const { parent, snapshots } = await twoRepos();
+    const sources = Array.from({ length: 11 }, (_, i) => ({
+      cfg: { name: `Src ${i}`, listCmd: printCwd, map },
+      cwd: parent,
+    }));
+    const results = await refreshAll(sources, snapshots, new Date());
+    assert.deepEqual(results.map((r) => r.source), sources.map((s) => s.cfg.name));
+    assert.ok(results.every((r) => r.tickets.length === 1 && !r.error));
+  });
+
   it('records the error of one repo without losing the others', async () => {
     const { parent, snapshots } = await twoRepos();
     const failing = `node "${path.join(__dirname, '..', 'fixtures', 'fail.js')}"`;

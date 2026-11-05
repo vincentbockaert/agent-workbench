@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentState, AgentStatus, describeSince } from '../agents/status';
 import { diffStats, LineStats } from '../git/diff';
@@ -150,7 +151,8 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const today = s.ticket ? undefined : this.todayLabel(ticketKey(s));
         const status = this.status(s.id);
         const state = status && `${STATE_SHORT[status.state]} · ${describeSince(status, new Date())}`;
-        item.description = [s.title ? s.id : undefined, s.agent, state, today].filter(Boolean).join(' · ');
+        // Ad-hoc sessions sit outside any repo group, so name their repo; ticket sessions show it via their source.
+        item.description = [s.title ? s.id : undefined, s.ticket ? undefined : path.basename(s.repo), s.agent, state, today].filter(Boolean).join(' · ');
         item.tooltip = [
           status && `${STATE_LABELS[status.state]}${status.message ? `: ${status.message}` : ''}`,
           s.branch,

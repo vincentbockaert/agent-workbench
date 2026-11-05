@@ -25,14 +25,26 @@ Requirements: Git, Node.js on `PATH` (agent hooks call `bin/wb.js` with `node`),
 
 ## Quick start
 
-1. Open a git repository in VS Code and click the **Agent Workbench** icon in the activity bar.
+1. Open a git repository, **or a folder that contains several repositories**, in VS Code and click the **Agent Workbench** icon in the activity bar.
 2. Add a ticket source to your settings (`agentWorkbench.ticketSources`), for example GitHub via `gh`, then click **Refresh**.
 3. Click ＋ on a ticket ("Work on this in new session"), pick an agent, and watch the session appear under the ticket.
 4. Click a ticket to open its **ticket tab**; click the clock for the **time report**.
 
+## Several repositories in one window
+
+Open a parent folder (say `~/repos/harm`) and the workbench works with every repository directly inside it, regardless of where VS Code was started:
+
+- A folder that is itself a repo counts as one repo. Otherwise its direct subfolders with a `.git` folder are the repos (one level deep). Session worktrees (`<repo>.worktrees/…`) are never mistaken for repos.
+- Each ticket source runs in **each repo** and shows up as its own group, named `<source> · <repo>` (for example `GitHub · billing`), so ticket numbers of different repos never collide. With a single repo the names stay plain.
+- "Work on this" creates the session in that ticket's repo. Ad-hoc sessions and tickets of a workspace source ask which repo.
+- Repos are looked up again when you add or remove a workspace folder and when you click **Refresh**.
+- Sessions of repos outside the window are kept but hidden until you open them.
+
+Sources not tied to a repo (Jira, Trello) would return the same tickets once per repo, so mark them `"scope": "workspace"`: they run once, in the window's root folder. The default is `"scope": "repo"`.
+
 ## Ticket sources
 
-A source is configuration, not code: a shell command that prints JSON, plus a map from ticket fields to dotted paths in each item. The command runs in your workspace folder and uses the CLI's own login.
+A source is configuration, not code: a shell command that prints JSON, plus a map from ticket fields to dotted paths in each item. The command runs in the repo (or, with `"scope": "workspace"`, in your workspace folder) and uses the CLI's own login.
 
 ```json
 "agentWorkbench.ticketSources": [
@@ -44,6 +56,7 @@ A source is configuration, not code: a shell command that prints JSON, plus a ma
 ]
 ```
 
+- `scope` is `"repo"` (default, runs in each repo) or `"workspace"` (runs once in the window's root folder); see [Several repositories](#several-repositories-in-one-window).
 - `map.id` and `map.title` are required; `status`, `url` and `description` are optional.
 - `itemsPath` points at the array when the command prints an object (e.g. Jira's `"issues"`).
 - Refreshing saves a snapshot; the view always renders from snapshots, so it works offline.
