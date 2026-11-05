@@ -186,3 +186,7 @@ npm run package      # build the .vsix
 - Codex has no approval hook, so it never shows "needs input".
 - Ticket tabs and the time report redraw fully when their numbers change, which resets scrolling.
 - "Mark as entered" cannot be undone from the UI yet.
+
+## License
+
+[Apache License 2.0](LICENSE). The shipped extension bundles no third-party code; the npm packages in `package-lock.json` are build and test tools only, and are not redistributed.

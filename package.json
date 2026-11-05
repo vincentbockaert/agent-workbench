@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "private": true,
   "publisher": "local",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -526,7 +526,7 @@
     "typecheck": "tsc --noEmit",
     "test": "mocha",
     "test:vscode": "npm run build && vscode-test",
-    "package": "npm run build && vsce package --no-dependencies --skip-license"
+    "package": "npm run build && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/mocha": "10.0.10",
