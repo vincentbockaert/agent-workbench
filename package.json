@@ -2,7 +2,7 @@
   "name": "agent-workbench",
   "displayName": "Agent Workbench",
   "description": "Control room for parallel, ticket-driven agentic coding sessions in git worktrees.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "publisher": "local",
   "license": "Apache-2.0",
