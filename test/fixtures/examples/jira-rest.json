@@ -1,7 +1,51 @@
 {
   "issues": [
-    { "id": "10123", "key": "PROJ-123", "self": "https://acme.atlassian.net/rest/api/3/issue/10123", "fields": { "summary": "Export report as CSV", "status": { "name": "In Progress" } } },
-    { "id": "10124", "key": "PROJ-124", "self": "https://acme.atlassian.net/rest/api/3/issue/10124", "fields": { "summary": "Fix login timeout", "status": { "name": "To Do" } } }
+    {
+      "id": "10123",
+      "key": "PROJ-123",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10123",
+      "fields": {
+        "summary": "Export report as CSV",
+        "status": {
+          "name": "In Progress"
+        },
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Export the report as a CSV file."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Include the header row."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "10124",
+      "key": "PROJ-124",
+      "self": "https://acme.atlassian.net/rest/api/3/issue/10124",
+      "fields": {
+        "summary": "Fix login timeout",
+        "status": {
+          "name": "To Do"
+        }
+      }
+    }
   ],
   "isLast": true
 }

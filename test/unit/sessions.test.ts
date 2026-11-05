@@ -56,6 +56,33 @@ describe('sessions', function () {
       assert.match(md, /Steps: run with \{\}/);
     });
 
+    it('puts the description in its own section before the raw tracker data', () => {
+      const md = renderTicketTask({ ...ghTicket, description: 'Line one.\n\n- point a\n- point b' });
+      const at = (needle: string) => md.indexOf(needle);
+      assert.ok(at('## Description') > 0, 'no Description section');
+      assert.ok(at('## Description') < at('## Tracker data'), 'description must come before the raw data');
+      assert.match(md, /## Description\n\nLine one\.\n\n- point a\n- point b\n\n## Tracker data/);
+    });
+
+    it('does not repeat the description as rich-text markup in the raw data, but keeps other rich-text fields', () => {
+      const adf = (text: string) => ({ type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+      const md = renderTicketTask({
+        source: 'Jira',
+        id: 'A-1',
+        title: 't',
+        description: 'Do the thing',
+        raw: { key: 'A-1', description: adf('Do the thing'), environment: adf('Only on UAT') },
+      });
+      assert.equal(md.match(/Do the thing/g)?.length, 1, 'the description must appear once, in its section');
+      assert.match(md, /"description": "\(rendered above in the Description section\)"/);
+      assert.match(md, /Only on UAT/);
+    });
+
+    it('has no Description section when the ticket has no description', () => {
+      assert.doesNotMatch(renderTicketTask(ghTicket), /## Description/);
+      assert.doesNotMatch(renderTicketTask({ ...ghTicket, description: '   ' }), /## Description/);
+    });
+
     it('is deterministic for the same ticket', () => {
       assert.equal(renderTicketTask(ghTicket), renderTicketTask({ ...ghTicket }));
     });

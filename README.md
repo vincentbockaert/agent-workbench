@@ -63,6 +63,7 @@ A source is configuration, not code: a shell command that prints JSON, plus a ma
 
 - `scope` is `"repo"` (default, runs in each repo) or `"workspace"` (runs once in the window's root folder); see [Several repositories](#several-repositories-in-one-window).
 - `map.id` and `map.title` are required; `status`, `url` and `description` are optional.
+- `description` becomes the **Description** section of the session's `.workbench/TASK.md` (the agent's first prompt); the raw tracker item follows it. The command must actually fetch the field (e.g. `--fields …,description`). A plain string is used as is; Jira's rich text (Atlassian Document Format) is converted to Markdown-ish text.
 - `itemsPath` points at the array when the command prints an object (e.g. Jira's `"issues"`).
 - Refreshing saves a snapshot; the view always renders from snapshots, so it works offline.
 
@@ -73,7 +74,8 @@ Ready-made examples, each tested against sample output, are in `src/tickets/exam
 | `github.json` | `gh` (logged in) | Verified against real `gh` output. |
 | `gitlab.json` | `glab` (logged in) | Uses `glab issue list --output json`; the id is the project-level `iid`. |
 | `jira-acli.json` | Atlassian CLI `acli` (logged in) | Assumes `--json` prints Jira's REST issue shape (`key`, `fields.summary`, `fields.status.name`); check your acli version's output. |
-| `jira-rest.json` | `curl`, env `JIRA_EMAIL`, `JIRA_API_TOKEN` | Replace `YOUR-SITE`. Jira descriptions are rich-text objects, so none is mapped. |
+| `jira-rest.json` | `curl`, env `JIRA_EMAIL`, `JIRA_API_TOKEN` | Replace `YOUR-SITE`. The rich-text description is converted to Markdown-ish text. |
+| `jira-twg.json` | Atlassian `twg` CLI (logged in) | Replace `YOUR-SITE`. Same conversion; output shape checked against real `twg` output. |
 | `trello.json` | `curl`, env `TRELLO_KEY`, `TRELLO_TOKEN` | Replace `YOUR-LIST-ID`. Trello has no status field. |
 
 **Windows:** commands run in `cmd.exe`, so the `curl` examples' `$JIRA_EMAIL` style variables must be written `%JIRA_EMAIL%` there. These variables are your own settings; no ticket text is ever put into a command.

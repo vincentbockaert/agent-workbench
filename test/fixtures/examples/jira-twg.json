@@ -1,0 +1,52 @@
+{
+  "apiVersion": "1",
+  "data": {
+    "issues": [
+      {
+        "id": "10123",
+        "key": "PROJ-123",
+        "summary": "Export report as CSV",
+        "status": {
+          "name": "In Progress"
+        },
+        "url": "https://acme.atlassian.net/browse/PROJ-123",
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Export the report as a CSV file."
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Include the header row."
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "10124",
+        "key": "PROJ-124",
+        "summary": "Fix login timeout",
+        "status": {
+          "name": "To Do"
+        },
+        "url": "https://acme.atlassian.net/browse/PROJ-124"
+      }
+    ]
+  },
+  "pageInfo": {
+    "hasMore": false
+  }
+}

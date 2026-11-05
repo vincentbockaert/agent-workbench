@@ -162,4 +162,39 @@ describe('tickets', function () {
       assert.equal(describeAge(ago(2 * 86_400_000), now), '2d ago');
     });
   });
+
+  describe('description mapping', () => {
+    const cfg = (description?: string, itemsPath?: string): TicketSourceConfig => ({
+      name: 'T',
+      listCmd: 'x',
+      itemsPath,
+      map: { id: 'key', title: 'summary', ...(description ? { description } : {}) },
+    });
+    const adf = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Do the thing' }] }] };
+
+    it('keeps a plain-text description as is', () => {
+      const [t] = mapTickets([{ key: 'A-1', summary: 's', body: 'plain text' }], cfg('body'));
+      assert.equal(t.description, 'plain text');
+    });
+
+    it('converts an Atlassian Document Format description to text, at a nested path too', () => {
+      const [flat] = mapTickets([{ key: 'A-1', summary: 's', description: adf }], cfg('description'));
+      assert.equal(flat.description, 'Do the thing');
+      const [nested] = mapTickets({ issues: [{ key: 'A-2', fields: { summary: 's', description: adf } }] }, { ...cfg('fields.description', 'issues'), map: { id: 'key', title: 'fields.summary', description: 'fields.description' } });
+      assert.equal(nested.description, 'Do the thing');
+    });
+
+    it('never produces "[object Object]": other objects and empty documents give no description', () => {
+      const [a] = mapTickets([{ key: 'A-1', summary: 's', description: { not: 'adf' } }], cfg('description'));
+      assert.equal(a.description, undefined);
+      const [b] = mapTickets([{ key: 'A-1', summary: 's', description: { type: 'doc', version: 1, content: [] } }], cfg('description'));
+      assert.equal(b.description, undefined);
+    });
+
+    it('has no description when none is mapped, and keeps the raw item', () => {
+      const [t] = mapTickets([{ key: 'A-1', summary: 's', description: adf }], cfg());
+      assert.equal(t.description, undefined);
+      assert.deepEqual((t.raw as { key: string }).key, 'A-1');
+    });
+  });
 });

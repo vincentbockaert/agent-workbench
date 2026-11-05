@@ -13,7 +13,8 @@ const load = (dir: string, name: string) => JSON.parse(fs.readFileSync(path.join
 const expected: Record<string, { sample: string; first: { id: string; title: string; status?: string; url?: string; description?: string } }> = {
   'github.json': { sample: 'github.json', first: { id: '42', title: 'Crash on empty config', status: 'OPEN', url: 'https://github.com/acme/web/issues/42', description: 'Steps:\n1. run with {}\n2. crash' } },
   'gitlab.json': { sample: 'gitlab.json', first: { id: '12', title: 'Rate-limit webhooks', status: 'opened', url: 'https://gitlab.com/acme/api/-/issues/12', description: 'Throttle to 10/s per tenant.' } },
-  'jira-rest.json': { sample: 'jira-rest.json', first: { id: 'PROJ-123', title: 'Export report as CSV', status: 'In Progress' } },
+  'jira-rest.json': { sample: 'jira-rest.json', first: { id: 'PROJ-123', title: 'Export report as CSV', status: 'In Progress', description: 'Export the report as a CSV file.\n\nInclude the header row.' } },
+  'jira-twg.json': { sample: 'jira-twg.json', first: { id: 'PROJ-123', title: 'Export report as CSV', status: 'In Progress', url: 'https://acme.atlassian.net/browse/PROJ-123', description: 'Export the report as a CSV file.\n\nInclude the header row.' } },
   'jira-acli.json': { sample: 'jira-acli.json', first: { id: 'PROJ-123', title: 'Export report as CSV', status: 'In Progress' } },
   'trello.json': { sample: 'trello.json', first: { id: '7', title: 'Write a README for the greeter', url: 'https://trello.com/c/AbCd1234', description: 'Cover install and usage.' } },
 };

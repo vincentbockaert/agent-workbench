@@ -1,4 +1,5 @@
 import { exec } from 'child_process';
+import { adfToText } from './adf';
 
 // A ticket source is configuration, not code: a shell command that prints JSON,
 // plus a map from ticket fields to dotted paths in each JSON item.
@@ -35,7 +36,7 @@ export function mapTickets(json: unknown, cfg: TicketSourceConfig): Ticket[] {
     throw new Error(`expected ${where} to be an array of tickets`);
   }
   return items.map((item, i) => {
-    const description = optional(item, cfg.map.description);
+    const description = describe(item, cfg.map.description);
     return {
       source: cfg.name,
       id: required(item, cfg.map.id, i, 'id'),
@@ -91,6 +92,19 @@ function optional(item: unknown, dotted: string | undefined): string | undefined
   }
   const v = getPath(item, dotted);
   return v === undefined || v === null || v === '' ? undefined : String(v);
+}
+
+// Plain text stays as is. Rich text (Jira's Atlassian Document Format) becomes Markdown-ish text; any other
+// object gives no description rather than "[object Object]" (the raw item is kept either way).
+function describe(item: unknown, dotted: string | undefined): string | undefined {
+  if (!dotted) {
+    return undefined;
+  }
+  const v = getPath(item, dotted);
+  if (v !== null && typeof v === 'object') {
+    return adfToText(v);
+  }
+  return optional(item, dotted);
 }
 
 function required(item: unknown, dotted: string, index: number, field: string): string {

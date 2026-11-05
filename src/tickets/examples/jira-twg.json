@@ -1,0 +1,13 @@
+{
+  "name": "Jira (twg)",
+  "listCmd": "twg jira workitem query --site YOUR-SITE.atlassian.net --jql \"assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC\" --fields summary,status,description --limit 100 -o json --output-summary none",
+  "scope": "workspace",
+  "itemsPath": "data.issues",
+  "map": {
+    "id": "key",
+    "title": "summary",
+    "status": "status.name",
+    "url": "url",
+    "description": "description"
+  }
+}
