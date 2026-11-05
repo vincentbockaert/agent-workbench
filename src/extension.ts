@@ -8,12 +8,12 @@ import { WORK_VIEW_ID } from './constants';
 import { HubTicket } from './hub/model';
 import { TicketHubs } from './hub/panel';
 import { TimeReportPanel } from './report/panel';
-import { git } from './git/git';
 import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionsInRepos, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshAll } from './tickets/snapshot';
 import { candidateRepos, expandSources } from './tickets/expand';
+import { BaseMode, describeBase, listBaseChoices, resolveBase } from './git/basebranch';
 import { discoverRepos, RepoInfo } from './git/repos';
 import { addWorktreeForBranch } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
@@ -41,12 +41,6 @@ function workspacePaths(): string[] {
 // Ticket commands such as `gh issue list` depend on the current repo, so run them in the workspace.
 function commandCwd(): string {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
-}
-
-// A repo with the branch it is on, which new sessions branch from.
-async function repoWithBranch(repo: RepoInfo): Promise<{ root: string; branch: string }> {
-  const branch = (await git(repo.root, ['branch', '--show-current'])).trim() || 'HEAD';
-  return { root: repo.root, branch };
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -226,9 +220,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!chosen) {
         return;
       }
-      const repo = await repoWithBranch(chosen);
-      // Show the agent choice with the branch and folder it will create, before creating anything.
       const cfg = vscode.workspace.getConfiguration('agentWorkbench');
+      // The base is chosen, never inferred from whatever the repo's own folder happens to have checked out.
+      const decision = resolveBase(cfg.get<BaseMode>('baseBranch', 'ask'), await listBaseChoices(chosen.root));
+      if ('error' in decision) {
+        void vscode.window.showErrorMessage(`Agent Workbench: ${decision.error}`);
+        return;
+      }
+      let baseRef: string;
+      if ('ref' in decision) {
+        baseRef = decision.ref;
+      } else {
+        const picked = await vscode.window.showQuickPick(
+          decision.ask.map((choice) => {
+            const d = describeBase(choice);
+            return { label: `$(git-branch) ${d.label}`, description: d.description, detail: d.warning && `$(warning) ${d.warning}`, ref: choice.ref };
+          }),
+          {
+            title: `Start ${opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title} from which branch?`,
+            placeHolder: 'The session gets its own branch and worktree, created from this one. Uncommitted work elsewhere is not included.',
+            matchOnDescription: true,
+          },
+        );
+        if (!picked) {
+          return;
+        }
+        baseRef = picked.ref;
+      }
+      const repo = { root: chosen.root, branch: baseRef };
+      // Show the agent choice with the branch and folder it will create, before creating anything.
       const predicted = await nextSessionId(repo.root, sessionSlugBase(opts.ticket, opts.adhoc?.title), store);
       const lastUsed = opts.ticket
         ? store.list().filter((s) => s.ticket?.source === opts.ticket!.source && s.ticket.id === opts.ticket!.id && s.agent).pop()?.agent

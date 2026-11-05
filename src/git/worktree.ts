@@ -48,7 +48,8 @@ export async function createWorktree(opts: CreateWorktreeOptions): Promise<Workt
     throw new Error(`unknown base ref "${baseRef}"`);
   }
 
-  await git(repo, ['worktree', 'add', '-q', '-b', branch, wtPath, baseRef]);
+  // --no-track: a branch based on origin/main must not track it, or a plain pull or push would act on main.
+  await git(repo, ['worktree', 'add', '-q', '--no-track', '-b', branch, wtPath, baseRef]);
   return { path: wtPath, branch };
 }
 
