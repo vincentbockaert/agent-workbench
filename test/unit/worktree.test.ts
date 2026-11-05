@@ -2,7 +2,7 @@ import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { git } from '../../src/git/git';
-import { changedFiles, createWorktree, removeWorktree } from '../../src/git/worktree';
+import { addWorktreeForBranch, changedFiles, createWorktree, removeWorktree } from '../../src/git/worktree';
 import { commitAll, makeRepo } from './helpers/repo';
 
 // Real git against throwaway repos: no mocks.
@@ -124,6 +124,36 @@ describe('worktree', function () {
 
       await removeWorktree(repo, wt.path, { force: true });
       assert.ok(!fs.existsSync(wt.path));
+    });
+  });
+
+  describe('addWorktreeForBranch', () => {
+    it('checks an existing branch out next to the repo, under a folder-safe name', async () => {
+      await git(repo, ['branch', 'feature/HDO-9_Some.Thing']);
+      const dir = await addWorktreeForBranch(repo, 'feature/HDO-9_Some.Thing');
+
+      assert.equal(dir, path.join(parent, 'repo.worktrees', 'feature-hdo-9_some.thing'));
+      assert.equal((await git(dir, ['branch', '--show-current'])).trim(), 'feature/HDO-9_Some.Thing');
+    });
+
+    it('honours a custom root', async () => {
+      await git(repo, ['branch', 'b1']);
+      const dir = await addWorktreeForBranch(repo, 'b1', path.join(parent, 'elsewhere'));
+      assert.equal(dir, path.join(parent, 'elsewhere', 'b1'));
+    });
+
+    it('refuses when the target folder exists, and when the branch is checked out elsewhere', async () => {
+      await git(repo, ['branch', 'b2']);
+      await addWorktreeForBranch(repo, 'b2');
+      await assert.rejects(addWorktreeForBranch(repo, 'b2'));
+
+      await git(repo, ['branch', 'b3']);
+      await git(repo, ['worktree', 'add', '-q', path.join(parent, 'manual'), 'b3']);
+      await assert.rejects(addWorktreeForBranch(repo, 'b3'));
+    });
+
+    it('rejects an unknown branch', async () => {
+      await assert.rejects(addWorktreeForBranch(repo, 'nope'));
     });
   });
 });

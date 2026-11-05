@@ -1,7 +1,7 @@
 import { strict as assert } from 'assert';
 import type { WorktreeEntry } from '../../src/git/branches';
 import type { Session } from '../../src/sessions/model';
-import { branchMatchesTicket, workForTicket } from '../../src/tickets/work';
+import { branchMatchesTicket, isTicketKey, workForTicket } from '../../src/tickets/work';
 
 describe('ticket work', () => {
   describe('branchMatchesTicket', () => {
@@ -113,6 +113,17 @@ describe('ticket work', () => {
 
     it('returns nothing when nothing matches', () => {
       assert.deepEqual(workForTicket({ ticket, repo, sessions: [], branches: ['main'], worktrees: [main] }), []);
+    });
+  });
+
+  describe('isTicketKey', () => {
+    it('accepts Jira-style keys only', () => {
+      for (const ok of ['HDO-1938', 'abc-1', 'A1-22']) {
+        assert.equal(isTicketKey(ok), true, ok);
+      }
+      for (const no of ['12', '#12', 'HDO-', '-12', 'HDO 12', '', 'HDO-12a']) {
+        assert.equal(isTicketKey(no), false, no);
+      }
     });
   });
 });

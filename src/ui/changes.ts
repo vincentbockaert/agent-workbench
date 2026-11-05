@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { BranchTarget, targetMergeBase } from '../git/branchdiff';
 import { decodeBaseQuery, encodeBaseQuery, fileAtRef, mergeBase } from '../git/diff';
 import { ChangedFile, ChangeStatus } from '../git/worktree';
 import { Session } from '../sessions/model';
@@ -52,6 +53,17 @@ export async function openChange(session: Session, file: ChangedFile): Promise<v
   const left = file.status === 'added' || file.status === 'untracked' ? side('') : side(ref);
   const right = file.status === 'deleted' ? side('') : vscode.Uri.file(path.join(session.worktree, file.path));
   await vscode.commands.executeCommand('vscode.diff', left, right, `${path.basename(file.path)} (base ↔ ${session.id})`, { preview: true });
+}
+
+// Same diff for a ticket's branch that no session owns. With a worktree the right side is the real, editable file;
+// without one both sides are read-only documents from git (the branch's committed state).
+export async function openBranchChange(target: BranchTarget, file: ChangedFile): Promise<void> {
+  const ref = await targetMergeBase(target);
+  const cwd = target.worktree ?? target.repo;
+  const side = (r: string) => vscode.Uri.from({ scheme: BASE_SCHEME, path: `/${file.path}`, query: encodeBaseQuery({ worktree: cwd, ref: r, path: file.path }) });
+  const left = file.status === 'added' || file.status === 'untracked' ? side('') : side(ref);
+  const right = file.status === 'deleted' ? side('') : target.worktree ? vscode.Uri.file(path.join(target.worktree, file.path)) : side(target.branch);
+  await vscode.commands.executeCommand('vscode.diff', left, right, `${path.basename(file.path)} (base ↔ ${target.branch})`, { preview: true });
 }
 
 // The session an editor belongs to: its worktree file, or a base-side document of its diff.

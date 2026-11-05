@@ -85,3 +85,21 @@ function toStatus(code: string): ChangeStatus {
       return 'modified'; // M, T (type change), U (unmerged)
   }
 }
+
+// Checks an existing branch out into a new worktree next to the repo (no agent, no session) and returns its path.
+export async function addWorktreeForBranch(repo: string, branch: string, root?: string): Promise<string> {
+  const slug = branch
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^[^a-z0-9]+|-+$/g, '');
+  if (!SLUG.test(slug)) {
+    throw new Error(`Cannot derive a folder name from branch "${branch}".`);
+  }
+  const dir = path.join(root ?? defaultWorktreeRoot(repo), slug);
+  if (fs.existsSync(dir)) {
+    throw new Error(`${dir} already exists.`);
+  }
+  await git(repo, ['worktree', 'add', dir, branch]);
+  return dir;
+}

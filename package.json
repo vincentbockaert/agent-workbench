@@ -119,6 +119,17 @@
         "category": "Agent Workbench"
       },
       {
+        "command": "agentWorkbench.openBranchChange",
+        "title": "Open Changes",
+        "category": "Agent Workbench"
+      },
+      {
+        "command": "agentWorkbench.openBranchWorktree",
+        "title": "Open in New Worktree",
+        "category": "Agent Workbench",
+        "icon": "$(folder-opened)"
+      },
+      {
         "command": "agentWorkbench.openTicketHub",
         "title": "Open Ticket",
         "category": "Agent Workbench",
@@ -290,6 +301,16 @@
           "command": "agentWorkbench.deleteSession",
           "when": "view == agentWorkbench.work && viewItem == session",
           "group": "9_delete@2"
+        },
+        {
+          "command": "agentWorkbench.openBranchWorktree",
+          "when": "view == agentWorkbench.work && viewItem == branchNoCheckout",
+          "group": "inline@0"
+        },
+        {
+          "command": "agentWorkbench.openBranchWorktree",
+          "when": "view == agentWorkbench.work && viewItem == branchNoCheckout",
+          "group": "0_branch@1"
         }
       ],
       "commandPalette": [
@@ -315,6 +336,14 @@
         },
         {
           "command": "agentWorkbench.openChange",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.openBranchChange",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.openBranchWorktree",
           "when": "false"
         },
         {

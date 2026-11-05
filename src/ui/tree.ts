@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentState, AgentStatus, describeSince } from '../agents/status';
+import { BranchTarget, changesForTarget } from '../git/branchdiff';
 import { diffStats, LineStats } from '../git/diff';
 import { ChangedFile, changedFiles } from '../git/worktree';
 import { Session } from '../sessions/model';
@@ -10,6 +11,8 @@ import { sumTotals, Totals } from '../time/compute';
 import { formatDuration } from '../time/report';
 import { ticketKey, ticketKeyOf } from '../time/rules';
 import { describeAge, readSnapshot } from '../tickets/snapshot';
+import { isTicketKey } from '../tickets/work';
+import { ManualBranch, manualBranchesForTicket, WorkIndex } from '../tickets/workIndex';
 import { TicketSourceConfig } from '../tickets/source';
 import { WORK_LABELS, WorkStatus } from '../tickets/workflow';
 import { filterWork, groupWork, SourceGroup, TicketGroup } from './group';
@@ -21,6 +24,8 @@ export type WorkNode =
   | { kind: 'other'; sessions: Session[] }
   | { kind: 'session'; session: Session }
   | { kind: 'change'; session: Session; file: ChangedFile; stats?: LineStats }
+  | { kind: 'branch'; branch: ManualBranch }
+  | { kind: 'branchChange'; target: BranchTarget; file: ChangedFile; stats?: LineStats }
   | { kind: 'today' }
   | { kind: 'figure'; label: string; ms: number; icon: string; color: string; tooltip: string };
 
@@ -36,6 +41,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly status: (sessionId: string) => AgentStatus | undefined,
     private readonly today: () => Record<string, Totals>,
     private readonly workStatus: (ticketKey: string) => WorkStatus,
+    private readonly work: WorkIndex,
   ) {}
 
   // "Hide Done Tickets" toggle.
@@ -74,7 +80,9 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         return children.concat(node.group.tickets.map((group) => ({ kind: 'ticket', group })));
       }
       case 'ticket':
-        return node.group.sessions.map((session) => ({ kind: 'session', session }));
+        return this.ticketChildren(node.group);
+      case 'branch':
+        return this.branchChanges(node.branch);
       case 'other':
         return node.sessions.map((session) => ({ kind: 'session', session }));
       case 'session':
@@ -89,6 +97,34 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
       }
       default:
         return [];
+    }
+  }
+
+  // Sessions first, then the ticket's other branches (manual work) from the work index, which reads git once per refresh.
+  private async ticketChildren(group: TicketGroup): Promise<WorkNode[]> {
+    const children: WorkNode[] = group.sessions.map((session) => ({ kind: 'session', session }));
+    try {
+      const { source, id } = group.ticket;
+      for (const branch of manualBranchesForTicket(await this.work.ensure(), { source, id }, group.sessions)) {
+        children.push({ kind: 'branch', branch });
+      }
+    } catch {
+      // the sessions still show
+    }
+    return children;
+  }
+
+  // Only runs git when a branch is expanded; a branch that cannot be compared shows no children.
+  private async branchChanges(b: ManualBranch): Promise<WorkNode[]> {
+    if (!b.baseRef) {
+      return [];
+    }
+    try {
+      const target: BranchTarget = { repo: b.repo.root, branch: b.branch, baseRef: b.baseRef, worktree: b.worktree };
+      const { files, stats } = await changesForTarget(target);
+      return files.map((file) => ({ kind: 'branchChange', target, file, stats: stats.get(file.path) }));
+    } catch {
+      return [];
     }
   }
 
@@ -120,7 +156,10 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
       }
       case 'ticket': {
         const { ticket, listed, sessions } = node.group;
-        const state = sessions.length > 0 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None;
+        // Collapsed (not empty) while the work index is unread, since a key-shaped ticket may have branches.
+        const read = this.work.peek();
+        const mayHaveBranches = isTicketKey(ticket.id) && (read === undefined || manualBranchesForTicket(read, ticket, sessions).length > 0);
+        const state = sessions.length > 0 ? vscode.TreeItemCollapsibleState.Expanded : mayHaveBranches ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
         const item = new vscode.TreeItem(`${ticket.id} ${ticket.title}`, state);
         const key = ticketKeyOf(ticket.source, ticket.id);
         const work = this.workStatus(key);
@@ -176,6 +215,30 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         item.tooltip = `${file.status}: ${file.path}`;
         item.contextValue = 'change';
         item.command = { command: 'agentWorkbench.openChange', title: 'Open Changes', arguments: [node] };
+        return item;
+      }
+      case 'branch': {
+        const { branch, repo, worktree, baseRef } = node.branch;
+        const item = new vscode.TreeItem(branch, vscode.TreeItemCollapsibleState.Collapsed);
+        item.description = `${repo.name} · ${worktree ? path.basename(worktree) : 'no checkout'}`;
+        item.tooltip = [
+          branch,
+          repo.root,
+          worktree ? `checked out in ${worktree}` : 'not checked out: committed changes only, read-only diffs',
+          baseRef ? `compared with ${baseRef}` : 'no default branch found: cannot compare',
+        ].join('\n');
+        item.iconPath = new vscode.ThemeIcon(worktree ? 'git-branch' : 'git-commit');
+        item.contextValue = worktree ? 'branch' : 'branchNoCheckout';
+        return item;
+      }
+      case 'branchChange': {
+        const { file, stats } = node;
+        const item = new vscode.TreeItem(file.path);
+        item.resourceUri = changeUri(file);
+        item.description = stats ? `+${stats.added} −${stats.removed}` : 'binary';
+        item.tooltip = `${file.status}: ${file.path}`;
+        item.contextValue = 'branchChange';
+        item.command = { command: 'agentWorkbench.openBranchChange', title: 'Open Changes', arguments: [node] };
         return item;
       }
       case 'today': {

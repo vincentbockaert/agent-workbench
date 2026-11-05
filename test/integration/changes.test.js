@@ -58,4 +58,35 @@ suite('changes', () => {
     const input = vscode.window.tabGroups.activeTabGroup.activeTab.input;
     assert.equal((await vscode.workspace.openTextDocument(input.original)).getText(), '');
   });
+
+  test('a branch with a checkout opens the editable worktree file on the right', async () => {
+    const repo = path.join(parent, 'repo');
+    const target = { repo, branch: 'wb/s-1', baseRef: 'main', worktree };
+    await vscode.commands.executeCommand('agentWorkbench.openBranchChange', { kind: 'branchChange', target, file: { path: 'a.txt', status: 'modified' } });
+
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab.input;
+    assert.ok(input instanceof vscode.TabInputTextDiff, 'active tab is not a diff');
+    assert.equal((await vscode.workspace.openTextDocument(input.original)).getText(), 'base line\n');
+    assert.equal(input.modified.scheme, 'file');
+    assert.equal(input.modified.fsPath.toLowerCase(), path.join(worktree, 'a.txt').toLowerCase());
+  });
+
+  test('a branch without a checkout opens read-only git content on both sides', async () => {
+    const repo = path.join(parent, 'repo');
+    const temp = path.join(parent, 'repo.worktrees', 'tmp');
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature/HDO-1-x', temp, 'main');
+    fs.writeFileSync(path.join(temp, 'a.txt'), 'branch line\n');
+    git(temp, 'commit', '-q', '-am', 'on branch');
+    git(repo, 'worktree', 'remove', temp);
+
+    const target = { repo, branch: 'feature/HDO-1-x', baseRef: 'main' };
+    await vscode.commands.executeCommand('agentWorkbench.openBranchChange', { kind: 'branchChange', target, file: { path: 'a.txt', status: 'modified' } });
+
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab.input;
+    assert.ok(input instanceof vscode.TabInputTextDiff, 'active tab is not a diff');
+    assert.equal(input.original.scheme, 'wb-base');
+    assert.equal(input.modified.scheme, 'wb-base');
+    assert.equal((await vscode.workspace.openTextDocument(input.original)).getText(), 'base line\n');
+    assert.equal((await vscode.workspace.openTextDocument(input.modified)).getText(), 'branch line\n');
+  });
 });

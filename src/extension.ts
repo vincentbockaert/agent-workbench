@@ -15,13 +15,15 @@ import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshAll } from './tickets/snapshot';
 import { candidateRepos, expandSources } from './tickets/expand';
 import { discoverRepos, RepoInfo } from './git/repos';
+import { addWorktreeForBranch } from './git/worktree';
+import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment } from './time/commands';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
 import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore } from './tickets/workflow';
-import { openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
+import { openBranchChange, openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
@@ -59,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const rediscover = async (): Promise<void> => {
     repos = await discoverRepos(workspacePaths());
     changed();
+    void workIndex.ensure().then(() => tree.refresh());
   };
   // The workbench's own ticket status; trackers are only ever read.
   const workflow = new WorkflowStore(path.join(context.globalStorageUri.fsPath, 'ticket-status.json'));
@@ -74,7 +77,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   };
-  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key));
+  // Branches and worktrees of every repo, read once per refresh so tickets can list their manual work.
+  const workIndex = new WorkIndex(() => repos);
+  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex);
+  void workIndex.ensure().then(() => tree.refresh());
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
   const focusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -359,7 +365,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.withProgress({ location: { viewId: WORK_VIEW_ID } }, async () => {
         const now = new Date();
         repos = await discoverRepos(workspacePaths());
-        await refreshAll(effectiveSources(), snapshotDir, now);
+        workIndex.invalidate();
+        await Promise.all([refreshAll(effectiveSources(), snapshotDir, now), workIndex.ensure()]);
         changed();
       }),
     ),
@@ -403,6 +410,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     registerChangeProviders(),
+
+    vscode.commands.registerCommand('agentWorkbench.openBranchChange', (node: WorkNode) =>
+      node?.kind === 'branchChange' ? guarded(() => openBranchChange(node.target, node.file)) : undefined,
+    ),
+
+    // Checks a ticket's branch out into a new worktree (no agent) so its changes become editable.
+    vscode.commands.registerCommand('agentWorkbench.openBranchWorktree', (node?: WorkNode) => {
+      if (node?.kind !== 'branch' || node.branch.worktree) {
+        return undefined;
+      }
+      const { repo, branch } = node.branch;
+      return guarded(async () => {
+        const dir = await addWorktreeForBranch(repo.root, branch);
+        workIndex.invalidate(repo.root);
+        await workIndex.ensure();
+        tree.refresh();
+        void vscode.window.showInformationMessage(`Checked out ${branch} in ${dir}. Expand it to edit the changes.`);
+      });
+    }),
 
     vscode.commands.registerCommand('agentWorkbench.openChange', (node: WorkNode) =>
       node?.kind === 'change' ? guarded(() => openChange(node.session, node.file)) : undefined,

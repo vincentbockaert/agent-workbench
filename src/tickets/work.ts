@@ -7,8 +7,12 @@ const KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 
 // True when the branch name contains the ticket key, case-insensitively, delimited by non-alphanumerics:
 // "feature/HDO-1938-x" matches HDO-1938, "hdo-19381" and "xhdo-1938" do not.
+export function isTicketKey(id: string): boolean {
+  return KEY.test(id);
+}
+
 export function branchMatchesTicket(branch: string, ticketId: string): boolean {
-  if (!KEY.test(ticketId)) {
+  if (!isTicketKey(ticketId)) {
     return false;
   }
   const key = ticketId.toLowerCase();
@@ -62,3 +66,4 @@ export function workForTicket(input: WorkInput): WorkBranch[] {
   }
   return work;
 }
+
