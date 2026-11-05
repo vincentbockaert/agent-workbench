@@ -493,6 +493,17 @@
           "minimum": 1,
           "description": "A gap without your activity longer than this ends your time interval at your last activity."
         },
+        "agentWorkbench.time.clockIdleMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 0,
+          "description": "After this many minutes without any activity in VS Code, ask whether the running timer should keep going or stop at your last activity. Not asked while an agent works on the active ticket. 0 turns it off."
+        },
+        "agentWorkbench.time.autoStopAt": {
+          "type": "string",
+          "default": "19:00",
+          "description": "Local time (HH:MM) at which all running timers stop, like clocking out. Empty turns it off."
+        },
         "agentWorkbench.time.bookedFigure": {
           "type": "string",
           "enum": [

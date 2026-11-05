@@ -14,8 +14,13 @@ export interface Totals {
   timerMs: number;
 }
 
+// A longer silence than this between life signs (beats and other events) while a ticket is active means the
+// laptop slept or VS Code died: the clock pauses over the gap instead of counting it.
+export const DEFAULT_CLOCK_GAP_MS = 5 * 60_000;
+
 export interface ComputeOptions {
   idleMs: number;
+  clockGapMs?: number;
   // Live view only: an interval still open at the end closes here instead of at the last recorded event.
   asOf?: number;
 }
@@ -77,6 +82,7 @@ function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
 
   // The work-item clock. onClock tickets are started; `active` is the one your attention is on, the others are
   // paused. `alive` is the time of the latest event of any kind: proof that VS Code was running.
+  const gapMs = opts.clockGapMs ?? DEFAULT_CLOCK_GAP_MS;
   const onClock = new Set<string>();
   let active: { ticket: string; since: number } | undefined;
   let alive = Number.NEGATIVE_INFINITY;
@@ -120,6 +126,11 @@ function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
 
   for (const e of sorted) {
     const t = Date.parse(e.ts);
+    if (active && t - alive > gapMs) {
+      // Nothing was recorded for a long time: not work. Count up to the last life sign, restart now.
+      push(timer, active.ticket, [active.since, Math.max(active.since, alive)]);
+      active = { ticket: active.ticket, since: t };
+    }
     const s = sessions.get(e.session) ?? { ticket: e.ticket, last: t };
     sessions.set(e.session, s);
     switch (e.type) {
@@ -180,7 +191,9 @@ function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
     s.last = t;
   }
   if (active) {
-    closeTimer(opts.asOf === undefined ? alive : Math.max(alive, opts.asOf));
+    // A live view runs up to asOf, unless the last life sign is older than the gap (asleep right now).
+    const live = opts.asOf !== undefined && opts.asOf - alive <= gapMs;
+    closeTimer(live ? Math.max(alive, opts.asOf as number) : alive);
   }
   for (const s of sessions.values()) {
     closeAgent(s, s.last);

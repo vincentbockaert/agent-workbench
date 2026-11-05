@@ -24,4 +24,10 @@ describe('manifest', () => {
       assert.ok(key in schema.properties, `example has unknown key "${key}"`);
     }
   });
+
+  it('declares the clock settings with the defaults the code assumes', () => {
+    const props = (manifest as any).contributes.configuration.properties;
+    assert.equal(props['agentWorkbench.time.clockIdleMinutes'].default, 15);
+    assert.equal(props['agentWorkbench.time.autoStopAt'].default, '19:00');
+  });
 });

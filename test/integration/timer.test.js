@@ -11,7 +11,10 @@ function events() {
   return files.flatMap((f) => fs.readFileSync(path.join(logDir, f), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)));
 }
 const clockEvents = (ticket) => events().filter((e) => e.session === 'clock' && e.ticket === ticket);
-const node = (id) => ({ kind: 'ticket', group: { ticket: { source: 'IntTest', id } } });
+// The test instance keeps its log between runs, so every run uses ticket ids of its own.
+const RUN = String(Date.now());
+const node = (n) => ({ kind: 'ticket', group: { ticket: { source: 'IntTest', id: `${RUN}-${n}` } } });
+const key = (n) => `IntTest:${RUN}-${n}`;
 
 suite('timer', () => {
   suiteSetup(async () => {
@@ -20,17 +23,17 @@ suite('timer', () => {
 
   test('Start Timer puts a ticket on the clock and Stop Timer takes it off, both in the log', async () => {
     await vscode.commands.executeCommand('agentWorkbench.startTimer', node('1'));
-    assert.deepStrictEqual(clockEvents('IntTest:1').map((e) => e.type), ['clock-on']);
+    assert.deepStrictEqual(clockEvents(key(1)).map((e) => e.type), ['clock-on']);
     await vscode.commands.executeCommand('agentWorkbench.stopTimer', node('1'));
-    assert.deepStrictEqual(clockEvents('IntTest:1').map((e) => e.type), ['clock-on', 'clock-off']);
+    assert.deepStrictEqual(clockEvents(key(1)).map((e) => e.type), ['clock-on', 'clock-off']);
   });
 
   test('starting the same ticket twice logs one clock-on, and stopping one that is off logs nothing', async () => {
     await vscode.commands.executeCommand('agentWorkbench.startTimer', node('2'));
     await vscode.commands.executeCommand('agentWorkbench.startTimer', node('2'));
     await vscode.commands.executeCommand('agentWorkbench.stopTimer', node('3'));
-    assert.deepStrictEqual(clockEvents('IntTest:2').map((e) => e.type), ['clock-on']);
-    assert.deepStrictEqual(clockEvents('IntTest:3'), []);
+    assert.deepStrictEqual(clockEvents(key(2)).map((e) => e.type), ['clock-on']);
+    assert.deepStrictEqual(clockEvents(key(3)), []);
     await vscode.commands.executeCommand('agentWorkbench.stopTimer', node('2'));
   });
 
@@ -39,8 +42,8 @@ suite('timer', () => {
     await vscode.commands.executeCommand('agentWorkbench.startTimer', node('5'));
     await vscode.commands.executeCommand('agentWorkbench.stopTimer', node('4'));
     await vscode.commands.executeCommand('agentWorkbench.stopTimer', node('5'));
-    assert.deepStrictEqual(clockEvents('IntTest:4').map((e) => e.type), ['clock-on', 'clock-off']);
-    assert.deepStrictEqual(clockEvents('IntTest:5').map((e) => e.type), ['clock-on', 'clock-off']);
+    assert.deepStrictEqual(clockEvents(key(4)).map((e) => e.type), ['clock-on', 'clock-off']);
+    assert.deepStrictEqual(clockEvents(key(5)).map((e) => e.type), ['clock-on', 'clock-off']);
   });
 
   test('ignores a node that is neither a ticket nor a session', async () => {

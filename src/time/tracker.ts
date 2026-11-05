@@ -3,7 +3,9 @@ import { AgentStatus } from '../agents/status';
 import { Session } from '../sessions/model';
 import { BEAT_MS, ClockTracker } from './clock';
 import { Totals, totalsByTicket } from './compute';
+import { shortLabel } from './clockbar';
 import { TimeEvent, TimeEventType } from './events';
+import { autoStopTime, shouldAskIdle } from './idle';
 import { appendEvent, readEvents } from './log';
 import { localDays } from './report';
 import { eventsForStatusChange, sessionForPath, ticketKey } from './rules';
@@ -11,6 +13,7 @@ import { eventsForStatusChange, sessionForPath, ticketKey } from './rules';
 const HEARTBEAT_MS = 30_000; // well below the idle limit, so throttling never loses time
 // Another window of this VS Code flavor shares the log; an event this recent means its clock may be running.
 const OTHER_WINDOW_ALIVE_MS = 150_000;
+const WATCH_MS = 30_000; // how often the idle question and the end-of-day stop are checked
 const AGENT_PROGRESS_MS = 60_000;
 
 export function idleMs(): number {
@@ -28,6 +31,13 @@ export class TimeTracker implements vscode.Disposable {
   private todayCache?: { day: string; totals: Record<string, Totals> };
   private eventsCache?: { day: string; events: TimeEvent[] };
   private readonly beatTimer: NodeJS.Timeout;
+  private readonly watchTimer: NodeJS.Timeout;
+  // The last time you did anything in VS Code (or sent a prompt): what the idle question looks at.
+  private lastActivityAt = Date.now();
+  private readonly workingSessions = new Set<string>();
+  private idlePromptOpen = false;
+  private lastIdleAskedAt: number | undefined;
+  private lastAutoStopCheck = Date.now();
   // The work-item clock: which tickets are on it and which one your attention is on.
   readonly clock: ClockTracker;
 
@@ -48,10 +58,16 @@ export class TimeTracker implements vscode.Disposable {
       () => this.onChange(),
     );
     this.beatTimer = setInterval(() => this.clock.beat(), BEAT_MS);
-    const fromEditor = (e: { document: vscode.TextDocument } | undefined) => this.touch(this.sessionForDocument(e?.document));
+    this.watchTimer = setInterval(() => this.watch(), WATCH_MS);
+    const fromEditor = (e: { document: vscode.TextDocument } | undefined) => {
+      this.noteActivity();
+      this.touch(this.sessionForDocument(e?.document));
+    };
     this.listeners = [
       vscode.window.onDidChangeWindowState((s) => {
-        if (!s.focused) {
+        if (s.focused) {
+          this.noteActivity();
+        } else {
           this.touch(undefined);
         }
       }),
@@ -63,8 +79,12 @@ export class TimeTracker implements vscode.Disposable {
           fromEditor({ document: e.document });
         }
       }),
-      vscode.window.onDidChangeActiveTerminal((t) => this.touch(t ? this.sessionById(this.terminals.get(t)) : undefined)),
+      vscode.window.onDidChangeActiveTerminal((t) => {
+        this.noteActivity();
+        this.touch(t ? this.sessionById(this.terminals.get(t)) : undefined);
+      }),
       vscode.window.onDidStartTerminalShellExecution((e) => {
+        this.noteActivity();
         const session = this.sessionById(this.terminals.get(e.terminal));
         if (session) {
           this.touch(session); // you ran a command in the session's shell
@@ -105,8 +125,14 @@ export class TimeTracker implements vscode.Disposable {
   }
 
   statusChanged(session: Session, prev: AgentStatus | undefined, next: AgentStatus | undefined): void {
+    if (next?.state === 'working') {
+      this.workingSessions.add(session.id);
+    } else {
+      this.workingSessions.delete(session.id);
+    }
     for (const type of eventsForStatusChange(prev?.state, next?.state)) {
       if (type === 'activity') {
+        this.noteActivity(); // you sent a prompt or answered the agent, wherever the window focus is
         // You submitted a prompt or answered the agent: activity in that session, if you are here at all.
         if (vscode.window.state.focused) {
           this.touch(session);
@@ -168,7 +194,69 @@ export class TimeTracker implements vscode.Disposable {
     this.todayCache = undefined;
   }
 
+  // Anything you do counts, not only work inside a session: the idle question is about you being away.
+  private noteActivity(): void {
+    this.lastActivityAt = Date.now();
+  }
+
+  private watch(): void {
+    this.checkAutoStop();
+    this.checkIdle();
+  }
+
+  // End of day: stop every timer at the configured time (backdated to it), like clocking out.
+  private checkAutoStop(): void {
+    const now = Date.now();
+    const at = autoStopTime(this.lastAutoStopCheck, now, vscode.workspace.getConfiguration('agentWorkbench').get<string>('time.autoStopAt', '19:00'));
+    this.lastAutoStopCheck = now;
+    if (at !== undefined && this.clock.state().onClock.length > 0) {
+      this.clock.stopAll(at);
+      void vscode.window.showInformationMessage(`Timers stopped at ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (end of day, see agentWorkbench.time.autoStopAt).`);
+    }
+  }
+
+  private checkIdle(): void {
+    const active = this.clock.state().active;
+    const minutes = vscode.workspace.getConfiguration('agentWorkbench').get<number>('time.clockIdleMinutes', 15);
+    const ask = shouldAskIdle({
+      now: Date.now(),
+      lastActivity: this.lastActivityAt,
+      thresholdMs: minutes * 60_000,
+      clockActive: active !== undefined,
+      agentWorking: active !== undefined && this.agentWorkingOn(active),
+      promptOpen: this.idlePromptOpen,
+      lastAskedAt: this.lastIdleAskedAt,
+    });
+    if (ask && active !== undefined) {
+      void this.askIdle(active, minutes);
+    }
+  }
+
+  // The timer keeps running until you answer; "Stop at ..." backdates the stop to your last activity.
+  private async askIdle(active: string, minutes: number): Promise<void> {
+    this.idlePromptOpen = true;
+    this.lastIdleAskedAt = Date.now();
+    const lastActivity = this.lastActivityAt;
+    const keep = 'Keep going';
+    const stop = `Stop at ${new Date(lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const choice = await vscode.window.showWarningMessage(`No activity for ${minutes} min. Is the timer for ${shortLabel(active, {})} still running for you?`, keep, stop);
+    this.idlePromptOpen = false;
+    if (choice === keep) {
+      this.noteActivity();
+    } else if (choice === stop) {
+      this.clock.stopAll(lastActivity);
+    }
+  }
+
+  private agentWorkingOn(ticket: string): boolean {
+    return [...this.workingSessions].some((id) => {
+      const s = this.sessionById(id);
+      return s !== undefined && ticketKey(s) === ticket;
+    });
+  }
+
   dispose(): void {
+    clearInterval(this.watchTimer);
     clearInterval(this.beatTimer);
     this.touch(undefined);
     this.listeners.forEach((l) => l.dispose());

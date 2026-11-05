@@ -5,7 +5,8 @@ import { TimeEvent, TimeEventType } from '../../src/time/events';
 const MIN = 60_000;
 const BASE = Date.parse('2026-11-05T09:00:00Z');
 const DAY = { start: Date.parse('2026-11-05T00:00:00Z'), end: Date.parse('2026-11-06T00:00:00Z') };
-const OPTS = { idleMs: 5 * MIN };
+// The gap rule has its own tests below; the synthetic events of the other tests are sparse on purpose.
+const OPTS = { idleMs: 5 * MIN, clockGapMs: Infinity };
 const A = 'Jira:HDO-1';
 const B = 'Jira:HDO-2';
 
@@ -16,7 +17,7 @@ function ev(minute: number, type: TimeEventType, ticket = A, extra: Partial<Time
 const beat = (minute: number) => ev(minute, 'clock-beat', '');
 const reset = (minute: number) => ev(minute, 'clock-reset', '');
 
-function timer(events: TimeEvent[], range = DAY, opts: { asOf?: number } = {}): Record<string, number> {
+function timer(events: TimeEvent[], range = DAY, opts: { asOf?: number; clockGapMs?: number } = {}): Record<string, number> {
   const out: Record<string, number> = {};
   for (const [ticket, t] of Object.entries(totalsByTicket(events, range, { ...OPTS, ...opts }))) {
     out[ticket] = t.timerMs / MIN;
@@ -97,6 +98,38 @@ describe('timer', () => {
       const day2 = { start: DAY.end, end: DAY.end + 24 * 60 * MIN };
       assert.deepEqual(timer([late, end], DAY), { [A]: 10 });
       assert.deepEqual(timer([late, end], day2), { [A]: 20 });
+    });
+  });
+
+  describe('gaps: a laptop that slept or a crash is not work', () => {
+    const GAP = { clockGapMs: 5 * MIN };
+
+    it('does not bridge a long gap between beats, and resumes after it', () => {
+      const events = [ev(0, 'clock-on'), beat(1), beat(2), beat(3), beat(120), beat(121), ev(125, 'clock-off')];
+      assert.deepEqual(timer(events, DAY, GAP), { [A]: 3 + 5 });
+    });
+
+    it('keeps a gap shorter than the limit', () => {
+      assert.deepEqual(timer([ev(0, 'clock-on'), beat(4), beat(8), ev(9, 'clock-off')], DAY, GAP), { [A]: 9 });
+    });
+
+    it('closes a trailing gap at the last life sign, with no later event', () => {
+      assert.deepEqual(timer([ev(0, 'clock-on'), beat(3), ev(200, 'agent-idle', B)], DAY, GAP), { [A]: 3 });
+    });
+
+    it('a live view stops at the last life sign when it is older than the gap, otherwise runs to asOf', () => {
+      assert.deepEqual(timer([ev(0, 'clock-on'), beat(3)], DAY, { ...GAP, asOf: BASE + 60 * MIN }), { [A]: 3 });
+      assert.deepEqual(timer([ev(0, 'clock-on'), beat(3)], DAY, { ...GAP, asOf: BASE + 5 * MIN }), { [A]: 5 });
+    });
+
+    it('does not affect a paused clock: nothing accrues, nothing to cut', () => {
+      const events = [ev(0, 'clock-on', A), beat(2), ev(4, 'clock-off', A), ev(300, 'clock-on', B), beat(302), ev(304, 'clock-off', B)];
+      assert.deepEqual(timer(events, DAY, GAP), { [A]: 4, [B]: 4 });
+    });
+
+    it('applies by default (5 minutes) when no limit is given', () => {
+      const totals = totalsByTicket([ev(0, 'clock-on'), beat(1), beat(100), ev(101, 'clock-off')], DAY, { idleMs: 5 * MIN });
+      assert.equal(totals[A].timerMs / MIN, 1 + 1);
     });
   });
 
