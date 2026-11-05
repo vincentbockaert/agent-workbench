@@ -126,7 +126,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     signals.sync();
     tree.refresh();
   };
-  const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed, (t, s) => tracker.registerTerminal(t, s));
+  const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed, (t, s) => {
+    tracker.registerTerminal(t, s);
+    signals.expectActivity(s.id);
+  });
   signals.sync();
 
   // A listed ticket from the snapshots (needed to start a session), by "<source>:<id>".
