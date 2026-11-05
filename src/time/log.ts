@@ -2,7 +2,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TimeEvent, TimeEventType } from './events';
 
-const TYPES: TimeEventType[] = ['session-start', 'session-end', 'agent-working', 'agent-idle', 'focus-start', 'activity', 'focus-end', 'adjust'];
+const TYPES: TimeEventType[] = [
+  'session-start',
+  'session-end',
+  'agent-working',
+  'agent-idle',
+  'focus-start',
+  'activity',
+  'focus-end',
+  'adjust',
+  'clock-on',
+  'clock-off',
+  'attend',
+  'clock-beat',
+  'clock-reset',
+];
 
 // One file per UTC month keeps files small; lines are only ever appended, never edited.
 function monthFile(dir: string, ts: string): string {

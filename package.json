@@ -179,6 +179,24 @@
         "title": "Start Agent With These Instructions",
         "category": "Agent Workbench",
         "icon": "$(play)"
+      },
+      {
+        "command": "agentWorkbench.startTimer",
+        "title": "Start Timer",
+        "category": "Agent Workbench",
+        "icon": "$(watch)"
+      },
+      {
+        "command": "agentWorkbench.stopTimer",
+        "title": "Stop Timer",
+        "category": "Agent Workbench",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "agentWorkbench.timerMenu",
+        "title": "Timers…",
+        "category": "Agent Workbench",
+        "icon": "$(watch)"
       }
     ],
     "menus": {
@@ -326,6 +344,16 @@
           "command": "agentWorkbench.openBranchWorktree",
           "when": "view == agentWorkbench.work && viewItem == branchNoCheckout",
           "group": "0_branch@1"
+        },
+        {
+          "command": "agentWorkbench.startTimer",
+          "when": "view == agentWorkbench.work && viewItem =~ /^(ticket|session)/",
+          "group": "5_time@1"
+        },
+        {
+          "command": "agentWorkbench.stopTimer",
+          "when": "view == agentWorkbench.work && viewItem =~ /^(ticket|session)/",
+          "group": "5_time@2"
         }
       ],
       "commandPalette": [
@@ -396,6 +424,14 @@
         {
           "command": "agentWorkbench.startAgentWithInstructions",
           "when": "agentWorkbench.composingInstructions"
+        },
+        {
+          "command": "agentWorkbench.startTimer",
+          "when": "false"
+        },
+        {
+          "command": "agentWorkbench.stopTimer",
+          "when": "false"
         }
       ]
     },

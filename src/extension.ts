@@ -19,12 +19,14 @@ import { addWorktreeForBranch } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment } from './time/commands';
+import { shortLabel } from './time/clockbar';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
 import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore } from './tickets/workflow';
 import { openBranchChange, openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { askInstructions, startWithInstructions, START_AGENT_COMMAND } from './ui/instructions';
+import { ClockStatus, TIMER_MENU_COMMAND } from './ui/clockstatus';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
@@ -97,10 +99,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     focusBar.tooltip = 'Time booked today on the ticket you are working in. Click for the time report.';
     focusBar.show();
   };
+  let clockStatus: ClockStatus | undefined;
   const tracker = new TimeTracker(logDir, sessionsHere, () => {
     tree.refresh();
     updateFocusBar();
     report.refresh();
+    clockStatus?.refresh();
   });
   // Ticket titles for the report: from every session (all repos) and the listed tickets.
   const reportTitles = (): Record<string, string> => {
@@ -120,6 +124,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     enteredFile: path.join(context.globalStorageUri.fsPath, 'entered.jsonl'),
     titles: reportTitles,
   });
+  clockStatus = new ClockStatus(tracker.clock, () => tracker.liveToday(), reportTitles);
+  tracker.start();
   const signals = new StatusSignals(sessionsHere, view, () => tree.refresh(), (s, prev, next) => tracker.statusChanged(s, prev, next));
   // Sessions added or removed: re-sync status watchers, then redraw.
   const changed = (): void => {
@@ -172,6 +178,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         case 'adjustTime':
           return void promptAdjustment(findTicket(key)?.id ?? key).then((a) => a && tracker.adjustTicket(key, a.minutes, a.note));
         case 'openAgent':
+          if (session) {
+            clockOn(session);
+          }
           return session ? void guarded(() => agents.open(session)) : undefined;
         case 'openShell':
           return session ? openShell(session) : undefined;
@@ -253,6 +262,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, instructions, ...opts });
       tracker.sessionStarted(session);
+      clockOn(session);
       advance(session, 'session-started');
       changed();
       if (picked.choice.profile) {
@@ -262,6 +272,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     } catch (e) {
       void vscode.window.showErrorMessage(`Agent Workbench: ${(e as Error).message}`);
+    }
+  }
+
+  // Work on a session's ticket puts it on the clock (and makes it the active one).
+  const clockOn = (session: Session): void => tracker.clock.start(ticketKey(session));
+  const clockKeyOf = (node?: WorkNode): string | undefined =>
+    node?.kind === 'ticket' ? ticketKeyOf(node.group.ticket.source, node.group.ticket.id) : node?.kind === 'session' ? ticketKey(node.session) : undefined;
+
+  // Status bar click: stop or switch the timers that run, or start one on any ticket we know.
+  async function timerMenu(): Promise<void> {
+    const state = tracker.clock.state();
+    const titles = reportTitles();
+    const totals = tracker.liveToday();
+    const label = (key: string) => shortLabel(key, titles);
+    const spent = (key: string) => formatDuration(totals[key]?.timerMs ?? 0);
+    const items: (vscode.QuickPickItem & { run: () => unknown })[] = [];
+    for (const key of state.onClock) {
+      if (key !== state.active) {
+        items.push({ label: `$(play) Switch to ${label(key)}`, description: spent(key), detail: titles[key], run: () => tracker.clock.start(key) });
+      }
+      items.push({ label: `$(debug-stop) Stop ${label(key)}`, description: spent(key), detail: titles[key], run: () => tracker.clock.stop(key) });
+    }
+    if (state.onClock.length > 1) {
+      items.push({ label: '$(debug-stop) Stop all', run: () => tracker.clock.stopAll() });
+    }
+    items.push({ label: '$(add) Start a timer on…', run: () => startTimerPicker(state.onClock) });
+    const picked = await vscode.window.showQuickPick(items, { title: 'Timers', placeHolder: 'Stop or switch a timer, or start one' });
+    await picked?.run();
+  }
+
+  async function startTimerPicker(skip: string[]): Promise<void> {
+    const candidates = new Map<string, vscode.QuickPickItem & { key: string }>();
+    for (const s of sessionsHere()) {
+      const key = ticketKey(s);
+      candidates.set(key, { key, label: s.ticket ? s.ticket.id : s.title ?? s.id, description: s.ticket?.title, detail: 'has a session' });
+    }
+    for (const { cfg } of effectiveSources()) {
+      for (const t of readSnapshot(snapshotDir, cfg.name)?.tickets ?? []) {
+        const key = ticketKeyOf(t.source, t.id);
+        if (!candidates.has(key)) {
+          candidates.set(key, { key, label: t.id, description: t.title, detail: [t.source, t.status].filter(Boolean).join(' · ') });
+        }
+      }
+    }
+    const items = [...candidates.values()].filter((c) => !skip.includes(c.key));
+    const picked = await vscode.window.showQuickPick(items, { title: 'Start a timer on…', placeHolder: 'Ticket', matchOnDescription: true, matchOnDetail: true });
+    if (picked) {
+      tracker.clock.start(picked.key);
     }
   }
 
@@ -302,6 +360,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   function openShell(session: Session): void {
+    clockOn(session);
     const terminal = vscode.window.createTerminal({ name: `wb: ${session.id}`, cwd: session.worktree });
     tracker.registerTerminal(terminal, session);
     terminal.show();
@@ -363,6 +422,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     report,
     vscode.commands.registerCommand('agentWorkbench.timeReport', () => report.open()),
 
+    vscode.commands.registerCommand('agentWorkbench.startTimer', (node?: WorkNode) => {
+      const key = clockKeyOf(node);
+      if (key) {
+        tracker.clock.start(key);
+      }
+    }),
+    vscode.commands.registerCommand('agentWorkbench.stopTimer', (node?: WorkNode) => {
+      const key = clockKeyOf(node);
+      if (key) {
+        tracker.clock.stop(key);
+      }
+    }),
+    vscode.commands.registerCommand(TIMER_MENU_COMMAND, () => timerMenu()),
+
     vscode.commands.registerCommand('agentWorkbench.adjustTime', async (node: WorkNode) => {
       if (node?.kind === 'session') {
         const s = node.session;
@@ -418,6 +491,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('agentWorkbench.openAgent', (node?: WorkNode) => {
       const session = sessionOf(node);
+      if (session) {
+        clockOn(session);
+      }
       return session ? guarded(() => agents.open(session)) : undefined;
     }),
 
@@ -466,11 +542,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('agentWorkbench.startAgent', (node: WorkNode) =>
-      node?.kind === 'session' ? guarded(() => agents.start(node.session, true)) : undefined,
+      node?.kind === 'session' ? (clockOn(node.session), guarded(() => agents.start(node.session, true))) : undefined,
     ),
 
     vscode.commands.registerCommand('agentWorkbench.resumeAgent', (node: WorkNode) =>
-      node?.kind === 'session' ? guarded(() => agents.resume(node.session)) : undefined,
+      node?.kind === 'session' ? (clockOn(node.session), guarded(() => agents.resume(node.session))) : undefined,
     ),
 
     vscode.commands.registerCommand('agentWorkbench.openSessionTask', async (node: WorkNode) => {
@@ -507,6 +583,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await deleteSession(store, s, { force: true });
       }
       tracker.sessionEnded(s);
+      if (!hasOtherTicketSessions(store.list(), s)) {
+        tracker.clock.stop(ticketKey(s));
+      }
       await offerDone(s);
       changed();
     }),
@@ -527,6 +606,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       tracker.sessionEnded(s);
+      if (!hasOtherTicketSessions(store.list(), s)) {
+        tracker.clock.stop(ticketKey(s));
+      }
       void vscode.window.showInformationMessage(`Finished ${s.id}: worktree removed, branch ${s.branch} kept.`);
       await offerDone(s);
       changed();

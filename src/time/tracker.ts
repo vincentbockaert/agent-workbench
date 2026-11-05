@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { AgentStatus } from '../agents/status';
 import { Session } from '../sessions/model';
+import { BEAT_MS, ClockTracker } from './clock';
 import { Totals, totalsByTicket } from './compute';
 import { TimeEvent, TimeEventType } from './events';
 import { appendEvent, readEvents } from './log';
@@ -8,6 +9,8 @@ import { localDays } from './report';
 import { eventsForStatusChange, sessionForPath, ticketKey } from './rules';
 
 const HEARTBEAT_MS = 30_000; // well below the idle limit, so throttling never loses time
+// Another window of this VS Code flavor shares the log; an event this recent means its clock may be running.
+const OTHER_WINDOW_ALIVE_MS = 150_000;
 const AGENT_PROGRESS_MS = 60_000;
 
 export function idleMs(): number {
@@ -23,12 +26,28 @@ export class TimeTracker implements vscode.Disposable {
   private readonly terminals = new Map<vscode.Terminal, string>();
   private readonly listeners: vscode.Disposable[];
   private todayCache?: { day: string; totals: Record<string, Totals> };
+  private eventsCache?: { day: string; events: TimeEvent[] };
+  private readonly beatTimer: NodeJS.Timeout;
+  // The work-item clock: which tickets are on it and which one your attention is on.
+  readonly clock: ClockTracker;
 
   constructor(
     private readonly logDir: string,
     private readonly sessions: () => Session[],
     private readonly onChange: () => void,
   ) {
+    this.clock = new ClockTracker(
+      {
+        now: () => Date.now(),
+        emit: (type, ticket, at) => this.write({ ts: new Date(at).toISOString(), ticket, session: 'clock', type }),
+        after: (ms, fn) => {
+          const handle = setTimeout(fn, ms);
+          return () => clearTimeout(handle);
+        },
+      },
+      () => this.onChange(),
+    );
+    this.beatTimer = setInterval(() => this.clock.beat(), BEAT_MS);
     const fromEditor = (e: { document: vscode.TextDocument } | undefined) => this.touch(this.sessionForDocument(e?.document));
     this.listeners = [
       vscode.window.onDidChangeWindowState((s) => {
@@ -53,6 +72,16 @@ export class TimeTracker implements vscode.Disposable {
       }),
       vscode.window.onDidCloseTerminal((t) => this.terminals.delete(t)),
     ];
+  }
+
+  // Call once everything that onChange touches exists. A clock left open by a crash or restart closes at the
+  // last recorded event, unless that event is so recent that another window is probably still running it.
+  start(): void {
+    const { events } = readEvents(this.logDir, localDays(new Date(), new Date())[0]);
+    const last = events.length > 0 ? Date.parse(events[events.length - 1].ts) : 0;
+    if (last > 0 && Date.now() - last > OTHER_WINDOW_ALIVE_MS) {
+      this.clock.reset();
+    }
   }
 
   registerTerminal(terminal: vscode.Terminal, session: Session): void {
@@ -102,27 +131,52 @@ export class TimeTracker implements vscode.Disposable {
 
   // A correction on a ticket that has no session (e.g. from the ticket hub before any work started).
   adjustTicket(key: string, minutes: number, note: string): void {
-    appendEvent(this.logDir, { ts: new Date().toISOString(), ticket: key, session: `adjust:${key}`, type: 'adjust', minutes, ...(note ? { note } : {}) });
-    this.todayCache = undefined;
+    this.write({ ts: new Date().toISOString(), ticket: key, session: `adjust:${key}`, type: 'adjust', minutes, ...(note ? { note } : {}) });
     this.onChange();
   }
 
-  // Today's totals per ticket key, recomputed after each new event.
+  // Today's totals per ticket key, recomputed after each new event. Open clock intervals run up to now.
   today(): Record<string, Totals> {
     const [day] = localDays(new Date(), new Date());
     if (this.todayCache?.day !== day.label) {
-      const { events } = readEvents(this.logDir, day);
-      this.todayCache = { day: day.label, totals: totalsByTicket(events, day, { idleMs: idleMs() }) };
+      this.todayCache = { day: day.label, totals: this.compute(day) };
     }
     return this.todayCache.totals;
   }
 
+  // Same as today() but never cached, for the ticking status bar.
+  liveToday(): Record<string, Totals> {
+    return this.compute(localDays(new Date(), new Date())[0]);
+  }
+
+  private compute(day: { start: number; end: number }): Record<string, Totals> {
+    return totalsByTicket(this.todayEvents(), day, { idleMs: idleMs(), asOf: Date.now() });
+  }
+
+  // The log read once per day and then kept in step with what this window appends.
+  private todayEvents(): TimeEvent[] {
+    const [day] = localDays(new Date(), new Date());
+    if (this.eventsCache?.day !== day.label) {
+      this.eventsCache = { day: day.label, events: readEvents(this.logDir, day).events };
+    }
+    return this.eventsCache.events;
+  }
+
+  private write(event: TimeEvent): void {
+    appendEvent(this.logDir, event);
+    this.eventsCache?.events.push(event);
+    this.todayCache = undefined;
+  }
+
   dispose(): void {
+    clearInterval(this.beatTimer);
     this.touch(undefined);
     this.listeners.forEach((l) => l.dispose());
   }
 
   private touch(session: Session | undefined): void {
+    // Cheap and called on every signal: lets the clock follow your attention between tickets.
+    this.clock.focus(session ? ticketKey(session) : undefined);
     if (session?.id === this.focused?.id) {
       if (session) {
         const last = this.lastActivity.get(session.id) ?? 0;
@@ -144,8 +198,7 @@ export class TimeTracker implements vscode.Disposable {
   }
 
   private emit(session: Session, type: TimeEventType, extra: Partial<TimeEvent> = {}): void {
-    appendEvent(this.logDir, { ts: new Date().toISOString(), ticket: ticketKey(session), session: session.id, type, ...extra });
-    this.todayCache = undefined;
+    this.write({ ts: new Date().toISOString(), ticket: ticketKey(session), session: session.id, type, ...extra });
     this.onChange();
   }
 
