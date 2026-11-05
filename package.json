@@ -173,10 +173,21 @@
         "title": "Create Pull Request…",
         "category": "Agent Workbench",
         "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "agentWorkbench.startAgentWithInstructions",
+        "title": "Start Agent With These Instructions",
+        "category": "Agent Workbench",
+        "icon": "$(play)"
       }
     ],
     "menus": {
       "editor/title": [
+        {
+          "command": "agentWorkbench.startAgentWithInstructions",
+          "when": "agentWorkbench.composingInstructions && resourceScheme == untitled",
+          "group": "navigation@1"
+        },
         {
           "command": "agentWorkbench.openAgent",
           "when": "agentWorkbench.inSession",
@@ -381,6 +392,10 @@
         {
           "command": "agentWorkbench.adjustTime",
           "when": "false"
+        },
+        {
+          "command": "agentWorkbench.startAgentWithInstructions",
+          "when": "agentWorkbench.composingInstructions"
         }
       ]
     },
@@ -390,7 +405,7 @@
         "agentWorkbench.agents": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one. Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`.",
+          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`.",
           "items": {
             "type": "object",
             "required": [
@@ -409,6 +424,10 @@
               "startCmd": {
                 "type": "string",
                 "description": "Starts a new agent conversation, e.g. `aider --message-file ${promptFile}`."
+              },
+              "startNoPromptCmd": {
+                "type": "string",
+                "description": "Starts the agent with no prompt, used when you leave the instructions empty or close the instructions tab, e.g. `aider`. Without it, startCmd is used."
               },
               "resumeCmd": {
                 "type": "string",

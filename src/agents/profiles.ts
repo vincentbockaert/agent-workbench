@@ -3,15 +3,18 @@ export interface AgentProfile {
   id: string;
   label: string;
   startCmd: string;
+  // Starts the agent with no prompt, for when the user wants to type the first request themselves.
+  // Without it the bare start falls back to startCmd.
+  startNoPromptCmd?: string;
   resumeCmd?: string;
 }
 
 // Commands run with the worktree as cwd, so "continue the latest conversation here" is per session.
 // The prompt is passed as a relative path: no absolute paths, so no shell quoting issues.
-const START_PROMPT = 'Read ${promptFile} and do the task described there.';
+const START_PROMPT = 'Read ${promptFile} and do the task described there. Follow its Instructions section first, if it has one.';
 export const DEFAULT_PROFILES: AgentProfile[] = [
-  { id: 'claude', label: 'Claude Code', startCmd: `claude -n \${sessionId} "${START_PROMPT}"`, resumeCmd: 'claude --continue' },
-  { id: 'codex', label: 'Codex', startCmd: `codex "${START_PROMPT}"`, resumeCmd: 'codex resume --last' },
+  { id: 'claude', label: 'Claude Code', startCmd: `claude -n \${sessionId} "${START_PROMPT}"`, startNoPromptCmd: 'claude -n ${sessionId}', resumeCmd: 'claude --continue' },
+  { id: 'codex', label: 'Codex', startCmd: `codex "${START_PROMPT}"`, startNoPromptCmd: 'codex', resumeCmd: 'codex resume --last' },
 ];
 
 export interface CommandVars {
@@ -57,8 +60,11 @@ function validate(entry: unknown): string | undefined {
   if (p.resumeCmd !== undefined && typeof p.resumeCmd !== 'string') {
     return `agent profile ${name}: "resumeCmd" must be a string`;
   }
+  if (p.startNoPromptCmd !== undefined && typeof p.startNoPromptCmd !== 'string') {
+    return `agent profile ${name}: "startNoPromptCmd" must be a string`;
+  }
   try {
-    for (const cmd of [p.startCmd!, p.resumeCmd ?? '']) {
+    for (const cmd of [p.startCmd!, p.resumeCmd ?? '', p.startNoPromptCmd ?? '']) {
       expandCommand(cmd, { sessionId: '', branch: '' });
     }
   } catch (e) {
@@ -78,9 +84,13 @@ export function expandCommand(template: string, vars: CommandVars): string {
   });
 }
 
-export function agentCommand(profile: AgentProfile, mode: 'start' | 'resume', vars: CommandVars): string {
+// 'start' hands the agent the TASK.md prompt, 'start-bare' opens it with no prompt, 'resume' continues the last conversation.
+export type AgentMode = 'start' | 'start-bare' | 'resume';
+
+export function agentCommand(profile: AgentProfile, mode: AgentMode, vars: CommandVars): string {
   if (mode === 'resume' && !profile.resumeCmd) {
     throw new Error(`${profile.label} has no resume command`);
   }
-  return expandCommand(mode === 'start' ? profile.startCmd : profile.resumeCmd!, vars);
+  const template = mode === 'resume' ? profile.resumeCmd! : mode === 'start-bare' ? profile.startNoPromptCmd ?? profile.startCmd : profile.startCmd;
+  return expandCommand(template, vars);
 }

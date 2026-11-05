@@ -118,6 +118,8 @@ Built in: `claude` (Claude Code) and `codex`. Add or override profiles in `agent
 ]
 ```
 
+`startNoPromptCmd` (optional) starts the agent with no prompt, used when you leave the instructions empty (see [Sessions](#sessions)); without it `startCmd` is used. The built-in `claude` and `codex` have one. A profile with the same `id` replaces the built-in entirely, so include `startNoPromptCmd` if you want it.
+
 Placeholders: `${promptFile}` (the relative path `.workbench/TASK.md`), `${sessionId}`, `${branch}`. Commands run in the session's worktree, so "continue the latest conversation here" (`claude --continue`) resumes exactly that session.
 
 `agentWorkbench.defaultAgent` picks the preselected agent; with `agentWorkbench.startAgentOnCreate` off, "No agent — just the worktree" is preselected.
@@ -135,7 +137,7 @@ Outside a workbench session `wb.js` does nothing, so global hooks are harmless.
 
 ## Sessions
 
-- **Work on this** (ticket) or **New ad-hoc session** creates `wb/<source>-<id>-<n>` in `<repo>.worktrees/<…>` next to your repository, writes `.workbench/TASK.md` from the ticket, and starts the chosen agent.
+- **Work on this** (ticket) or **New ad-hoc session** creates `wb/<source>-<id>-<n>` in `<repo>.worktrees/<…>` next to your repository and writes `.workbench/TASK.md` from the ticket. After you pick an agent, a markdown tab opens for **your instructions**: write the context the ticket lacks, then click **Start Agent** (▶, top right). Your text goes into an `## Instructions` section of `TASK.md` and the agent starts with the usual "read TASK.md" prompt, told to follow it first. Leave the tab empty, or close it, and the agent starts in the worktree **with no prompt**, so you type the first request yourself. "No agent" skips the tab.
 - **Open Agent** focuses the agent terminal, resumes the last agent, or starts the default one. **Open Shell** opens a terminal in the worktree.
 - Expand a session to see its **changed files**; click one for a diff against the commit the session started from.
 - **Create Pull Request** types `git push … && gh pr create …` into a terminal for you to review; it never runs it for you.

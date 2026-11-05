@@ -3,7 +3,7 @@ import { Ticket } from '../tickets/source';
 
 // TASK.md is the agent's starting prompt; it is a pure function of the ticket.
 // The mapped description gets its own section; the raw tracker item is included as-is after it, since body fields differ per tracker.
-export function renderTicketTask(ticket: Ticket): string {
+export function renderTicketTask(ticket: Ticket, instructions?: string): string {
   const lines = [`# ${ticket.id}: ${ticket.title}`, '', `- Source: ${ticket.source}`];
   if (ticket.status) {
     lines.push(`- Status: ${ticket.status}`);
@@ -11,6 +11,7 @@ export function renderTicketTask(ticket: Ticket): string {
   if (ticket.url) {
     lines.push(`- URL: ${ticket.url}`);
   }
+  lines.push(...instructionLines(instructions));
   const description = ticket.description?.trim();
   if (description) {
     lines.push('', '## Description', '', description);
@@ -28,6 +29,14 @@ function dedupe(description: string | undefined): ((key: string, value: unknown)
   return (_key, value) => (adfToText(value) === description ? '(rendered above in the Description section)' : value);
 }
 
-export function renderAdhocTask(title: string, description: string): string {
-  return `# ${title}\n\n${description}\n`;
+export function renderAdhocTask(title: string, description: string, instructions?: string): string {
+  const extra = instructionLines(instructions);
+  return `# ${title}\n\n${description}\n${extra.length ? `${extra.join('\n')}\n` : ''}`;
+}
+
+// What the user wrote when starting the session; the start prompt tells the agent to follow it first.
+// Starts with a blank line and has none at the end, like every section above, so sections stay one blank line apart.
+function instructionLines(instructions: string | undefined): string[] {
+  const text = instructions?.trim();
+  return text ? ['', '## Instructions', '', text] : [];
 }

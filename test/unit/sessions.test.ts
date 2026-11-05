@@ -90,6 +90,21 @@ describe('sessions', function () {
     it('renders an ad-hoc task from title and description', () => {
       assert.equal(renderAdhocTask('Spike', 'Try X'), '# Spike\n\nTry X\n');
     });
+
+    it('puts the user\'s instructions in their own section between the ticket header and the description', () => {
+      const md = renderTicketTask({ ...ghTicket, description: 'Body text' }, 'Start with the parser.\nSkip the CLI.');
+      assert.match(md, /Status: OPEN[\s\S]*## Instructions\n\nStart with the parser\.\nSkip the CLI\.\n\n## Description\n\nBody text/);
+    });
+
+    it('has no Instructions section for empty or blank instructions', () => {
+      assert.equal(renderTicketTask(ghTicket, ''), renderTicketTask(ghTicket));
+      assert.equal(renderTicketTask(ghTicket, '  \n '), renderTicketTask(ghTicket));
+      assert.equal(renderAdhocTask('Spike', 'Try X', ' '), '# Spike\n\nTry X\n');
+    });
+
+    it('adds instructions to an ad-hoc task after its description', () => {
+      assert.equal(renderAdhocTask('Spike', 'Try X', 'Use Y'), '# Spike\n\nTry X\n\n## Instructions\n\nUse Y\n');
+    });
   });
 
   describe('SessionStore', () => {
@@ -143,6 +158,18 @@ describe('sessions', function () {
       store = new SessionStore(path.join(parent, 'state', 'sessions.json'));
     });
     afterEach(() => fs.rmSync(parent, { recursive: true, force: true }));
+
+    it('writes the user\'s instructions into TASK.md, for ticket and ad-hoc sessions', async () => {
+      const t = await startSession({ repo, baseRef: 'main', store, ticket: ghTicket, instructions: 'Only touch the parser.', now });
+      assert.match(fs.readFileSync(path.join(t.worktree, '.workbench', 'TASK.md'), 'utf8'), /## Instructions\n\nOnly touch the parser\./);
+      const a = await startSession({ repo, baseRef: 'main', store, adhoc: { title: 'Spike', description: 'Try X' }, instructions: 'Use Y', now });
+      assert.match(fs.readFileSync(path.join(a.worktree, '.workbench', 'TASK.md'), 'utf8'), /Try X\n\n## Instructions\n\nUse Y\n$/);
+    });
+
+    it('writes no Instructions section when none were given', async () => {
+      const t = await startSession({ repo, baseRef: 'main', store, ticket: ghTicket, now });
+      assert.doesNotMatch(fs.readFileSync(path.join(t.worktree, '.workbench', 'TASK.md'), 'utf8'), /## Instructions/);
+    });
 
     it('creates a worktree for the ticket, writes TASK.md, and records the session', async () => {
       const s = await startSession({ repo, baseRef: 'main', store, ticket: ghTicket, now });

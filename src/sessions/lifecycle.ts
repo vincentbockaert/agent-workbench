@@ -14,6 +14,7 @@ export interface StartSessionOptions {
   store: SessionStore;
   ticket?: Ticket;
   adhoc?: { title: string; description: string };
+  instructions?: string; // what the user wrote for the agent; goes into TASK.md
   worktreeRoot?: string;
   now?: Date;
 }
@@ -48,7 +49,7 @@ export async function startSession(opts: StartSessionOptions): Promise<Session> 
 
     await excludeFromGit(wt.path, [`/${WORKBENCH_DIR}/`, `/${CLAUDE_SETTINGS_FILE}`]);
     fs.mkdirSync(path.join(wt.path, WORKBENCH_DIR), { recursive: true });
-    const task = ticket ? renderTicketTask(ticket) : renderAdhocTask(adhoc!.title, adhoc!.description);
+    const task = ticket ? renderTicketTask(ticket, opts.instructions) : renderAdhocTask(adhoc!.title, adhoc!.description, opts.instructions);
     fs.writeFileSync(path.join(wt.path, WORKBENCH_DIR, 'TASK.md'), task);
 
     const session: Session = {

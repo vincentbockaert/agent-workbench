@@ -75,6 +75,35 @@ describe('agents', () => {
       }
     });
 
+    it('starts the built-in agents without any prompt in their bare form, in the worktree', () => {
+      assert.equal(agentCommand(DEFAULT_PROFILES.find((p) => p.id === 'claude')!, 'start-bare', vars), 'claude -n github-42-1');
+      assert.equal(agentCommand(DEFAULT_PROFILES.find((p) => p.id === 'codex')!, 'start-bare', vars), 'codex');
+    });
+
+    it('falls back to startCmd for the bare start when a profile defines no bare command', () => {
+      const aider = { id: 'aider', label: 'Aider', startCmd: 'aider --message-file ${promptFile}' };
+      assert.equal(agentCommand(aider, 'start-bare', vars), 'aider --message-file .workbench/TASK.md');
+    });
+
+    it('uses startNoPromptCmd of a user profile for the bare start and expands its placeholders', () => {
+      const p = { id: 'x', label: 'X', startCmd: 'x "${promptFile}"', startNoPromptCmd: 'x --name ${sessionId}' };
+      assert.equal(agentCommand(p, 'start-bare', vars), 'x --name github-42-1');
+      assert.equal(agentCommand(p, 'start', vars), 'x ".workbench/TASK.md"');
+    });
+
+    it('tells the agent to follow the Instructions section of TASK.md first', () => {
+      assert.match(agentCommand(DEFAULT_PROFILES[0], 'start', vars), /Instructions/);
+    });
+
+    it('rejects a profile whose startNoPromptCmd is not a string or has an unknown placeholder', () => {
+      const { problems } = mergeProfiles([
+        { id: 'a', label: 'A', startCmd: 'a', startNoPromptCmd: 5 },
+        { id: 'b', label: 'B', startCmd: 'b', startNoPromptCmd: 'b ${nope}' },
+      ]);
+      assert.equal(problems.length, 2);
+      assert.match(problems[0], /startNoPromptCmd/);
+    });
+
     it('resumes claude with --continue, which is scoped to the worktree folder', () => {
       const claude = DEFAULT_PROFILES.find((p) => p.id === 'claude')!;
       assert.equal(agentCommand(claude, 'resume', vars), 'claude --continue');

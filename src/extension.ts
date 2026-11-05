@@ -24,6 +24,7 @@ import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
 import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore } from './tickets/workflow';
 import { openBranchChange, openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
+import { askInstructions, startWithInstructions, START_AGENT_COMMAND } from './ui/instructions';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
 
@@ -226,25 +227,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           label: choice.label,
           description: choice.description,
           detail: choice.profile
-            ? agentCommand(choice.profile, 'start', { sessionId: predicted, branch: `wb/${predicted}` })
+            ? agentCommand(choice.profile, 'start-bare', { sessionId: predicted, branch: `wb/${predicted}` })
             : 'Work on it yourself; time is still tracked on this ticket',
           choice,
         })),
         {
           title: `Work on ${opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title} — branch wb/${predicted} from ${repo.branch}`,
-          placeHolder: 'Which agent? Your open files and working tree are not touched.',
+          placeHolder: 'Which agent? Next you can write its first request. Your open files and working tree are not touched.',
           matchOnDetail: true,
         },
       );
       if (!picked) {
         return;
       }
-      const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, ...opts });
+      // With an agent: let the user write its first request. Empty or a closed tab starts it with no prompt.
+      let instructions: string | undefined = '';
+      if (picked.choice.profile) {
+        instructions = await askInstructions(opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title);
+        if (instructions === undefined) {
+          return; // an instructions tab for another session is still open
+        }
+      }
+      const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, instructions, ...opts });
       tracker.sessionStarted(session);
       advance(session, 'session-started');
       changed();
       if (picked.choice.profile) {
-        agents.startWith(session, picked.choice.profile);
+        agents.startWith(session, picked.choice.profile, instructions !== '');
       } else {
         await vscode.window.showTextDocument(vscode.Uri.file(path.join(session.worktree, WORKBENCH_DIR, 'TASK.md')));
       }
@@ -519,6 +528,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await offerDone(s);
       changed();
     }),
+
+    vscode.commands.registerCommand(START_AGENT_COMMAND, () => startWithInstructions()),
+    // Internal (used by the integration tests): the instructions tab on its own.
+    vscode.commands.registerCommand('agentWorkbench.askInstructions', (label: string) => askInstructions(label)),
 
     vscode.workspace.onDidChangeWorkspaceFolders(() => void rediscover()),
 

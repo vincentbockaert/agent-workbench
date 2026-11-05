@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Session } from '../sessions/model';
 import { SessionStore } from '../sessions/store';
-import { AgentProfile, agentCommand, mergeProfiles } from './profiles';
+import { AgentMode, AgentProfile, agentCommand, mergeProfiles } from './profiles';
 import { AgentState, CLAUDE_SETTINGS_FILE, claudeHookSettings, readStatusFile, STATUS_FILE, writeStatusFile } from './status';
 
 function config(): vscode.WorkspaceConfiguration {
@@ -65,8 +65,9 @@ export class AgentTerminals implements vscode.Disposable {
     }
   }
 
-  startWith(session: Session, profile: AgentProfile): void {
-    this.run(session, profile, 'start');
+  // withPrompt: hand the agent the TASK.md prompt; otherwise open it bare, in the worktree, for the user to type.
+  startWith(session: Session, profile: AgentProfile, withPrompt = true): void {
+    this.run(session, profile, withPrompt ? 'start' : 'start-bare');
   }
 
   async resume(session: Session): Promise<void> {
@@ -84,7 +85,7 @@ export class AgentTerminals implements vscode.Disposable {
     this.listeners.forEach((l) => l.dispose());
   }
 
-  private run(session: Session, profile: AgentProfile, mode: 'start' | 'resume'): void {
+  private run(session: Session, profile: AgentProfile, mode: AgentMode): void {
     const cmd = agentCommand(profile, mode, { sessionId: session.id, branch: session.branch });
     this.installClaudeHooks(session);
     const terminal = vscode.window.createTerminal({
