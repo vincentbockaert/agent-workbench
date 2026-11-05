@@ -9,11 +9,18 @@ export interface Totals {
   yourMs: number;
   agentMs: number;
   elapsedMs: number;
+  // Time you were working on the ticket according to the work-item clock (exclusive: one active ticket at a time).
+  // In a range with no clock events at all (days before the clock existed) it equals elapsedMs.
+  timerMs: number;
 }
 
 export interface ComputeOptions {
   idleMs: number;
+  // Live view only: an interval still open at the end closes here instead of at the last recorded event.
+  asOf?: number;
 }
+
+const CLOCK_EVENTS = new Set(['clock-on', 'clock-off', 'attend', 'clock-reset']);
 
 export type Interval = [number, number];
 
@@ -31,20 +38,28 @@ interface SessionState {
 // a longer gap ends the interval at the last heartbeat. focus-end closes it.
 // Intervals left open (crash, missing end) close at the session's last recorded event, never "now".
 // Parallel sessions of one ticket are unioned, so nothing is counted twice.
+//
+// Timer: see collect(). Several tickets can be on the clock but only the active one accrues time, so the
+// per-ticket timer figures can be summed without counting anything twice.
 export function totalsByTicket(events: TimeEvent[], range: Range, opts: ComputeOptions): Record<string, Totals> {
-  const { agent, focus, adjustMs } = collect(events, range, opts);
+  const { agent, focus, timer, adjustMs, clockEventTimes } = collect(events, range, opts);
   const result: Record<string, Totals> = {};
-  const tickets = new Set([...agent.keys(), ...focus.keys(), ...adjustMs.keys()]);
+  const tickets = new Set([...agent.keys(), ...focus.keys(), ...timer.keys(), ...adjustMs.keys()]);
+  // Days before the clock existed have no clock events: their booked figure stays elapsed time.
+  const clockUsed =
+    clockEventTimes.some((t) => t >= range.start && t < range.end) || [...timer.values()].some((ivs) => clip(ivs, range).length > 0);
   for (const ticket of tickets) {
     const a = clip(agent.get(ticket) ?? [], range);
     const f = clip(focus.get(ticket) ?? [], range);
     const adjust = adjustMs.get(ticket) ?? 0;
+    const elapsedMs = Math.max(0, length(union([...a, ...f])) + adjust);
     const totals = {
       yourMs: Math.max(0, length(union(f)) + adjust),
       agentMs: length(union(a)),
-      elapsedMs: Math.max(0, length(union([...a, ...f])) + adjust),
+      elapsedMs,
+      timerMs: clockUsed ? Math.max(0, length(union(clip(timer.get(ticket) ?? [], range))) + adjust) : elapsedMs,
     };
-    if (totals.yourMs > 0 || totals.agentMs > 0 || totals.elapsedMs > 0) {
+    if (totals.yourMs > 0 || totals.agentMs > 0 || totals.elapsedMs > 0 || totals.timerMs > 0) {
       result[ticket] = totals;
     }
   }
@@ -56,7 +71,27 @@ function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
   const sorted = [...events].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
   const agent = new Map<string, Interval[]>();
   const focus = new Map<string, Interval[]>();
+  const timer = new Map<string, Interval[]>();
   const adjustMs = new Map<string, number>();
+  const clockEventTimes: number[] = [];
+
+  // The work-item clock. onClock tickets are started; `active` is the one your attention is on, the others are
+  // paused. `alive` is the time of the latest event of any kind: proof that VS Code was running.
+  const onClock = new Set<string>();
+  let active: { ticket: string; since: number } | undefined;
+  let alive = Number.NEGATIVE_INFINITY;
+  const closeTimer = (at: number) => {
+    if (active) {
+      push(timer, active.ticket, [active.since, Math.max(active.since, at)]);
+      active = undefined;
+    }
+  };
+  const attendTo = (ticket: string, at: number) => {
+    if (active?.ticket !== ticket) {
+      closeTimer(at);
+      active = { ticket, since: at };
+    }
+  };
   const sessions = new Map<string, SessionState>();
   const push = (map: Map<string, Interval[]>, ticket: string, iv: Interval) => map.set(ticket, [...(map.get(ticket) ?? []), iv]);
 
@@ -116,10 +151,36 @@ function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
           adjustMs.set(e.ticket, (adjustMs.get(e.ticket) ?? 0) + (e.minutes ?? 0) * 60_000);
         }
         break;
+      case 'clock-on':
+        onClock.add(e.ticket);
+        attendTo(e.ticket, t);
+        break;
+      case 'attend':
+        if (onClock.has(e.ticket)) {
+          attendTo(e.ticket, t);
+        }
+        break;
+      case 'clock-off':
+        if (onClock.delete(e.ticket) && active?.ticket === e.ticket) {
+          closeTimer(t);
+        }
+        break;
+      case 'clock-reset':
+        closeTimer(alive); // the last event before this one: nobody recorded anything after it
+        onClock.clear();
+        break;
       case 'session-start':
+      case 'clock-beat':
         break;
     }
+    if (CLOCK_EVENTS.has(e.type)) {
+      clockEventTimes.push(t);
+    }
+    alive = Math.max(alive, t);
     s.last = t;
+  }
+  if (active) {
+    closeTimer(opts.asOf === undefined ? alive : Math.max(alive, opts.asOf));
   }
   for (const s of sessions.values()) {
     closeAgent(s, s.last);
@@ -127,7 +188,7 @@ function collect(events: TimeEvent[], range: Range, opts: ComputeOptions) {
       push(focus, s.ticket, [s.focus.start, s.focus.last]);
     }
   }
-  return { agent, focus, adjustMs };
+  return { agent, focus, timer, adjustMs, clockEventTimes };
 }
 
 function clip(intervals: Interval[], range: Range): Interval[] {
@@ -157,17 +218,19 @@ function length(intervals: Interval[]): number {
 export interface TicketIntervals {
   you: Interval[];
   agents: Interval[];
+  timer: Interval[];
 }
 
 // The merged intervals behind the totals, clipped to the range: for drawing a timeline.
 export function ticketIntervals(events: TimeEvent[], range: Range, opts: ComputeOptions): Record<string, TicketIntervals> {
-  const { agent, focus } = collect(events, range, opts);
+  const { agent, focus, timer } = collect(events, range, opts);
   const result: Record<string, TicketIntervals> = {};
-  for (const ticket of new Set([...agent.keys(), ...focus.keys()])) {
+  for (const ticket of new Set([...agent.keys(), ...focus.keys(), ...timer.keys()])) {
     const you = union(clip(focus.get(ticket) ?? [], range));
     const agents = union(clip(agent.get(ticket) ?? [], range));
-    if (you.length > 0 || agents.length > 0) {
-      result[ticket] = { you, agents };
+    const timed = union(clip(timer.get(ticket) ?? [], range));
+    if (you.length > 0 || agents.length > 0 || timed.length > 0) {
+      result[ticket] = { you, agents, timer: timed };
     }
   }
   return result;
@@ -175,11 +238,12 @@ export function ticketIntervals(events: TimeEvent[], range: Range, opts: Compute
 
 // Sum over tickets (what you book), not a union: two tickets worked in parallel both count.
 export function sumTotals(byTicket: Record<string, Totals>): Totals {
-  const sum = { yourMs: 0, agentMs: 0, elapsedMs: 0 };
+  const sum = { yourMs: 0, agentMs: 0, elapsedMs: 0, timerMs: 0 };
   for (const t of Object.values(byTicket)) {
     sum.yourMs += t.yourMs;
     sum.agentMs += t.agentMs;
     sum.elapsedMs += t.elapsedMs;
+    sum.timerMs += t.timerMs;
   }
   return sum;
 }

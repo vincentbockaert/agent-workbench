@@ -130,9 +130,9 @@ describe('polish', function () {
 
   describe('sumTotals', () => {
     it('adds each figure over tickets, and is zero for none', () => {
-      const t = (y: number, a: number, e: number) => ({ yourMs: y * MIN, agentMs: a * MIN, elapsedMs: e * MIN });
-      assert.deepEqual(sumTotals({ 'A:1': t(10, 20, 25), 'B:2': t(5, 0, 5) }), t(15, 20, 30));
-      assert.deepEqual(sumTotals({}), t(0, 0, 0));
+      const t = (y: number, a: number, e: number, timer: number) => ({ yourMs: y * MIN, agentMs: a * MIN, elapsedMs: e * MIN, timerMs: timer * MIN });
+      assert.deepEqual(sumTotals({ 'A:1': t(10, 20, 25, 18), 'B:2': t(5, 0, 5, 7) }), t(15, 20, 30, 25));
+      assert.deepEqual(sumTotals({}), t(0, 0, 0, 0));
     });
   });
 
