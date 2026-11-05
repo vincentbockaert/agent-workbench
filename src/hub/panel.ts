@@ -17,6 +17,10 @@ export interface HubDeps {
   logDir: string;
   findTicket: (key: string) => HubTicket | undefined;
   onMessage: (key: string, msg: HubMessage, session: Session | undefined) => void;
+  // The pull requests cache and refresh state of a ticket; undefined or disabled = no section.
+  pullRequests: (key: string) => HubInput['pullRequests'];
+  // The tab was opened: a chance to refresh what is stale.
+  onOpen?: (key: string) => void;
 }
 
 // One editor tab per ticket. Re-rendered when anything changes, but only if what it shows changed,
@@ -50,6 +54,7 @@ export class TicketHubs implements vscode.Disposable {
       }
     });
     void this.render(key, entry);
+    this.deps.onOpen?.(key);
   }
 
   // Debounced: status files can change several times a second while an agent works.
@@ -81,7 +86,7 @@ export class TicketHubs implements vscode.Disposable {
     const week = localDays(monday, new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6));
     const { events } = readEvents(this.deps.logDir, { start: week[0].start, end: week[6].end });
 
-    const input: HubInput = { ticket, sessions, statuses: {}, changes: {}, events, week, now, opts: reportOptions() };
+    const input: HubInput = { ticket, sessions, statuses: {}, changes: {}, events, week, now, opts: reportOptions(), pullRequests: this.deps.pullRequests(key) };
     await Promise.all(
       sessions.map(async (s) => {
         input.statuses[s.id] = this.deps.status(s.id);

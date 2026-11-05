@@ -15,6 +15,8 @@ import { readSnapshot, refreshAll } from './tickets/snapshot';
 import { candidateRepos, expandSources } from './tickets/expand';
 import { BaseMode, describeBase, listBaseChoices, resolveBase } from './git/basebranch';
 import { discoverRepos, RepoInfo } from './git/repos';
+import { isStale, readPrSnapshot, refreshTicketPrs } from './pr/cache';
+import { prTargets } from './pr/targets';
 import { addWorktreeForBranch } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
@@ -151,11 +153,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const remembered = store.list().find((s) => s.ticket && ticketKeyOf(s.ticket.source, s.ticket.id) === key)?.ticket;
     return remembered && { key, source: remembered.source, id: remembered.id, title: remembered.title, url: remembered.url, listed: false, workStatus: workflow.get(key) };
   };
+  const prDir = path.join(context.globalStorageUri.fsPath, 'prs');
+  const prRefreshing = new Set<string>();
+  const prSettings = () => {
+    const c = vscode.workspace.getConfiguration('agentWorkbench');
+    return { enabled: c.get<boolean>('pullRequests.enabled', true), maxAgeMs: c.get<number>('pullRequests.refreshMinutes', 5) * 60_000 };
+  };
+  // Asks GitHub (through gh) for the pull requests of one ticket and caches them; the open tab shows the cache.
+  async function refreshPrs(key: string): Promise<void> {
+    const ticket = findTicket(key);
+    if (!ticket || !prSettings().enabled || prRefreshing.has(key)) {
+      return;
+    }
+    prRefreshing.add(key);
+    hubs.refreshAll();
+    try {
+      await refreshTicketPrs(key, ticket, prTargets(await workIndex.ensure(), ticket, store.list()), prDir, new Date());
+    } catch (e) {
+      void vscode.window.showErrorMessage(`Agent Workbench: could not refresh pull requests: ${(e as Error).message}`);
+    } finally {
+      prRefreshing.delete(key);
+      hubs.refreshAll();
+    }
+  }
   const hubs = new TicketHubs({
     sessions: sessionsHere,
     status: (id) => signals.get(id),
     logDir,
     findTicket,
+    pullRequests: (key) => ({ enabled: prSettings().enabled, snapshot: readPrSnapshot(prDir, key), refreshing: prRefreshing.has(key) }),
+    onOpen: (key) => {
+      if (prSettings().enabled && isStale(readPrSnapshot(prDir, key), new Date(), prSettings().maxAgeMs)) {
+        void refreshPrs(key);
+      }
+    },
     onMessage: (key, msg, session) => {
       switch (msg.command) {
         case 'setStatus':
@@ -164,6 +195,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         case 'newSession': {
           const t = snapshotTicket(key);
           return t ? void newSession({ ticket: t }) : undefined;
+        }
+        case 'refreshPrs':
+          return void refreshPrs(key);
+        case 'openPr': {
+          // The page only names a PR; the URL comes from our own cache, and only https is ever opened.
+          const found = readPrSnapshot(prDir, key)?.prs.find((p) => `${p.repoRoot}#${p.number}` === msg.pr);
+          return found?.url.startsWith('https://') ? void vscode.env.openExternal(vscode.Uri.parse(found.url)) : undefined;
         }
         case 'openInBrowser': {
           const url = findTicket(key)?.url;

@@ -30,4 +30,12 @@ describe('manifest', () => {
     assert.equal(props['agentWorkbench.time.clockIdleMinutes'].default, 15);
     assert.equal(props['agentWorkbench.time.autoStopAt'].default, '19:00');
   });
+
+  it('declares the base branch and pull request settings with the defaults the code assumes', () => {
+    const props = (manifest as any).contributes.configuration.properties;
+    assert.equal(props['agentWorkbench.baseBranch'].default, 'ask');
+    assert.deepEqual(props['agentWorkbench.baseBranch'].enum, ['ask', 'default-branch', 'current']);
+    assert.equal(props['agentWorkbench.pullRequests.enabled'].default, true);
+    assert.equal(props['agentWorkbench.pullRequests.refreshMinutes'].default, 5);
+  });
 });

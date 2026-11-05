@@ -155,6 +155,14 @@ A ticket lists, next to its sessions, **every local branch whose name carries th
 - Branches and worktrees are read once per **Refresh** (and at start-up), not on every click. A branch or worktree you create outside the workbench appears after the next Refresh.
 - Parallel work is not tied to how it was started: a session, a worktree you made yourself, or a plain branch all end up under the ticket.
 
+## Pull requests
+
+The ticket tab has a **Pull requests** section, so everything created for a ticket is in one place: state (open, draft, merged, closed), title, repository and number, branch → base, **checks** (passing, failing, running), **review** (approved, changes requested, review required), conflicts, and when it was last updated. **Open** shows the PR on GitHub.
+
+- A PR belongs to the ticket when its head branch is one of the ticket's branches (its sessions, or branches carrying the ticket key), or when its head branch or title contains the key (`HDO-2064`, case-insensitive, `HDO-20641` does not match).
+- Read-only: it only lists, through the GitHub CLI `gh` and its own login (`gh auth login`). Only repositories that carry work for the ticket are asked, so a parent folder with dozens of repositories does not mean dozens of calls. A repository without a GitHub remote shows nothing; GitLab and Bitbucket are not supported.
+- The list is cached per ticket (`prs/` in the extension's storage), refreshed when the tab opens if it is older than `agentWorkbench.pullRequests.refreshMinutes` (5), and by the **Refresh** button. If `gh` is missing or logged out, the last known list stays and the problem is shown under it. `agentWorkbench.pullRequests.enabled` switches the section off.
+
 ## Workbench status
 
 To do → Doing → Review → Done, stored locally per ticket. It moves on its own where the signal is unambiguous:

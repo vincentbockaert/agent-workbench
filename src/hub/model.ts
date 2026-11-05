@@ -5,6 +5,8 @@ import { WorkStatus } from '../tickets/workflow';
 import { ticketIntervals, totalsByTicket } from '../time/compute';
 import { TimeEvent } from '../time/events';
 import { buildReport, localDays, ReportDay, ReportOptions } from '../time/report';
+import type { PrSnapshot } from '../pr/cache';
+import type { ChecksState, PrState, ReviewState } from '../pr/model';
 
 export interface HubTicket {
   key: string; // "<source>:<id>"
@@ -30,6 +32,29 @@ export interface HubSession {
   removed: number;
 }
 
+export interface HubPr {
+  id: string; // "<repo folder>#<number>": what the page sends back; the extension looks the URL up itself
+  number: number;
+  repo: string;
+  title: string;
+  state: PrState;
+  branch: string;
+  base: string;
+  author?: string;
+  age: string; // "2h ago"
+  review: ReviewState;
+  checks: ChecksState;
+  conflicts: boolean;
+}
+
+export interface HubPullRequests {
+  enabled: boolean; // off: the page has no such section
+  items: HubPr[];
+  fetchedAgo?: string; // when the list was last refreshed
+  errors: string[]; // "<repo>: <message>"
+  refreshing: boolean;
+}
+
 export interface HubDay {
   label: string; // "Mon"
   elapsedMs: number;
@@ -41,6 +66,7 @@ export interface HubModel {
   sessions: HubSession[];
   week: { yourMs: number; agentMs: number; elapsedMs: number; timerMs: number; bookedMs: number };
   days: HubDay[];
+  pullRequests: HubPullRequests;
   timeline: { you: [number, number][]; agents: [number, number][]; timer: [number, number][]; hours: { label: string; at: number }[] }; // fractions 0..1
 }
 
@@ -54,6 +80,8 @@ export interface HubInput {
   week: ReportDay[]; // Mon..Sun, local
   now: Date;
   opts: ReportOptions;
+  // From the PR cache; undefined or disabled = the page shows no pull request section.
+  pullRequests?: { enabled: boolean; snapshot?: PrSnapshot; refreshing: boolean };
 }
 
 // Pure: everything the ticket hub shows, computed from stored data only.
@@ -90,7 +118,49 @@ export function buildTicketHub(input: HubInput): HubModel {
     return { label: WEEKDAYS[new Date(day.start).getDay()], elapsedMs: t?.elapsedMs ?? 0, isToday: now.getTime() >= day.start && now.getTime() < day.end };
   });
 
-  return { ticket, sessions, week, days, timeline: timeline(input) };
+  return { ticket, sessions, week, days, pullRequests: pullRequestsOf(input), timeline: timeline(input) };
+}
+
+// "just now", "5m ago", "2h ago", "3d ago".
+export function relativeAge(iso: string, now: Date): string {
+  const ms = now.getTime() - Date.parse(iso);
+  if (!(ms >= 60_000)) {
+    return 'just now'; // also for a missing or future time
+  }
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+}
+
+function pullRequestsOf(input: HubInput): HubPullRequests {
+  const prs = input.pullRequests;
+  if (!prs?.enabled) {
+    return { enabled: false, items: [], errors: [], refreshing: false };
+  }
+  const snap = prs.snapshot;
+  return {
+    enabled: true,
+    items: (snap?.prs ?? []).map((p) => ({
+      id: `${p.repoRoot}#${p.number}`,
+      number: p.number,
+      repo: p.repo,
+      title: p.title,
+      state: p.state,
+      branch: p.branch,
+      base: p.base,
+      ...(p.author ? { author: p.author } : {}),
+      age: relativeAge(p.updatedAt, input.now),
+      review: p.review,
+      checks: p.checks,
+      conflicts: p.conflicts,
+    })),
+    ...(snap?.fetchedAt ? { fetchedAgo: relativeAge(snap.fetchedAt, input.now) } : {}),
+    errors: (snap?.errors ?? []).map((e) => `${e.repo}: ${e.message}`),
+    refreshing: prs.refreshing,
+  };
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

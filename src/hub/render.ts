@@ -1,6 +1,6 @@
 import { WORK_LABELS, WORK_STATUSES, WorkStatus } from '../tickets/workflow';
 import { formatDuration } from '../time/report';
-import { HubModel, HubSession } from './model';
+import { HubModel, HubPr, HubPullRequests, HubSession } from './model';
 
 // Messages the page posts back; the panel maps them onto existing commands.
 export type HubMessage =
@@ -10,13 +10,72 @@ export type HubMessage =
   | { command: 'openAgent'; session: string }
   | { command: 'openShell'; session: string }
   | { command: 'openTask'; session: string }
+  | { command: 'refreshPrs' }
+  | { command: 'openPr'; pr: string }
   | { command: 'setStatus'; status: WorkStatus };
 
 const SESSION_COMMANDS = ['openAgent', 'openShell', 'openTask'];
-const TICKET_COMMANDS = ['newSession', 'openInBrowser', 'adjustTime'];
+const TICKET_COMMANDS = ['newSession', 'openInBrowser', 'adjustTime', 'refreshPrs'];
 
 function esc(s: string | undefined): string {
   return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+const PR_STATE: Record<HubPr['state'], { label: string; color: string }> = {
+  open: { label: 'Open', color: 'var(--vscode-charts-green)' },
+  draft: { label: 'Draft', color: 'var(--vscode-descriptionForeground)' },
+  merged: { label: 'Merged', color: 'var(--vscode-charts-purple)' },
+  closed: { label: 'Closed', color: 'var(--vscode-charts-red)' },
+};
+const PR_CHECKS: Record<HubPr['checks'], { label: string; color: string }> = {
+  pass: { label: '✓ Passing', color: 'var(--vscode-charts-green)' },
+  fail: { label: '✗ Failing', color: 'var(--vscode-charts-red)' },
+  pending: { label: '● Running', color: 'var(--vscode-charts-orange)' },
+  none: { label: '—', color: 'var(--vscode-descriptionForeground)' },
+};
+const PR_REVIEW: Record<HubPr['review'], { label: string; color: string }> = {
+  approved: { label: '✓ Approved', color: 'var(--vscode-charts-green)' },
+  changes: { label: '✎ Changes requested', color: 'var(--vscode-charts-red)' },
+  required: { label: '○ Review required', color: 'var(--vscode-charts-orange)' },
+  none: { label: '—', color: 'var(--vscode-descriptionForeground)' },
+};
+
+function prRow(p: HubPr): string {
+  const state = PR_STATE[p.state];
+  const checks = PR_CHECKS[p.checks];
+  const review = PR_REVIEW[p.review];
+  return `<tr>
+  <td><span style="color:${state.color}">● ${state.label}</span></td>
+  <td><b>${esc(p.title)}</b>${p.conflicts ? ' <span style="color:var(--vscode-charts-orange)">⚠ conflicts</span>' : ''}<br><span class="muted mono">${esc(p.repo)} #${p.number} · ${esc(p.branch)} → ${esc(p.base)}</span></td>
+  <td style="color:${checks.color}">${checks.label}</td>
+  <td style="color:${review.color}">${review.label}</td>
+  <td class="muted">${esc(p.age)}${p.author ? `<br><span class="small">${esc(p.author)}</span>` : ''}</td>
+  <td class="actions"><button data-command="openPr" data-pr="${esc(p.id)}">Open</button></td>
+</tr>`;
+}
+
+// The ticket's pull requests: from the cache, with a Refresh button. Hidden when the feature is off.
+function prSection(pr: HubPullRequests): string {
+  if (!pr.enabled) {
+    return '';
+  }
+  const loading = pr.items.length === 0 && pr.fetchedAgo === undefined && pr.refreshing;
+  const body = loading
+    ? '<p class="muted">Loading pull requests…</p>'
+    : pr.items.length === 0
+      ? '<p class="muted">No pull requests found for this ticket. They are matched by the ticket\'s branches, or by the ticket key in the branch name or the PR title.</p>'
+      : `<div class="table"><table><thead><tr><th>State</th><th>Pull request</th><th>Checks</th><th>Review</th><th>Updated</th><th></th></tr></thead><tbody>${pr.items.map(prRow).join('')}</tbody></table></div>`;
+  const errors = pr.errors.map((e) => `<p class="small" style="color:var(--vscode-charts-orange)">⚠ ${esc(e)}</p>`).join('');
+  return `<section>
+  <div class="sectionhead">
+    <h2>PULL REQUESTS · ${pr.items.length}</h2>
+    ${pr.fetchedAgo ? `<span class="muted small">Updated ${esc(pr.fetchedAgo)}</span>` : ''}
+    <button data-command="refreshPrs"${pr.refreshing ? ' disabled' : ''}>${pr.refreshing ? 'Refreshing…' : 'Refresh'}</button>
+  </div>
+  ${body}
+  ${errors}
+</section>
+`;
 }
 
 const STATE: Record<NonNullable<HubSession['state']>, { label: string; color: string }> = {
@@ -92,6 +151,7 @@ td{padding:9px 12px;border-top:1px solid var(--vscode-panel-border)}
 tr.attention td{background:color-mix(in srgb,var(--vscode-charts-orange) 9%,transparent)}
 td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px}
 .add{color:var(--vscode-gitDecoration-addedResourceForeground)}.del{color:var(--vscode-gitDecoration-deletedResourceForeground)}
+.sectionhead{display:flex;gap:12px;align-items:center;margin-bottom:10px}.sectionhead h2{margin:0}.sectionhead button{margin-left:auto}
 .row{display:flex;flex-wrap:wrap;gap:24px}.row>section{flex:1 1 340px;min-width:0}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
 .card{border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
@@ -135,6 +195,7 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
   }
 </section>
 
+${prSection(model.pullRequests)}
 <div class="row">
   <section>
     <h2>THIS WEEK ON THIS TICKET</h2>
@@ -165,7 +226,7 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
 const vscode = acquireVsCodeApi();
 document.getElementById('workStatus').addEventListener('change', (e) => vscode.postMessage({ command: 'setStatus', status: e.target.value }));
 for (const b of document.querySelectorAll('button[data-command]')) {
-  b.addEventListener('click', () => vscode.postMessage({ command: b.dataset.command, session: b.dataset.session }));
+  b.addEventListener('click', () => vscode.postMessage({ command: b.dataset.command, session: b.dataset.session, pr: b.dataset.pr }));
 }
 </script>
 </body>
@@ -184,6 +245,10 @@ export function parseHubMessage(msg: unknown): HubMessage | undefined {
   if (command === 'setStatus') {
     const { status } = msg as { status?: unknown };
     return WORK_STATUSES.includes(status as WorkStatus) ? { command, status: status as WorkStatus } : undefined;
+  }
+  if (command === 'openPr') {
+    const { pr } = msg as { pr?: unknown };
+    return typeof pr === 'string' && pr !== '' ? { command, pr } : undefined;
   }
   if (TICKET_COMMANDS.includes(command)) {
     return { command } as HubMessage;

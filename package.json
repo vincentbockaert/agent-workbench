@@ -492,6 +492,17 @@
           ],
           "description": "Which branch a new session's branch is created from."
         },
+        "agentWorkbench.pullRequests.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a ticket's pull requests in its tab. They are read from GitHub through the `gh` CLI (must be logged in); nothing is ever changed."
+        },
+        "agentWorkbench.pullRequests.refreshMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Refresh a ticket's pull requests when its tab opens if the cached list is older than this many minutes. The Refresh button always refreshes."
+        },
         "agentWorkbench.startAgentOnCreate": {
           "type": "boolean",
           "default": true,

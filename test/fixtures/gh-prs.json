@@ -1,0 +1,44 @@
+[
+  {
+    "number": 412, "title": "HDO-2064: redirect identity for Azure multitenant", "url": "https://github.com/acme/billing/pull/412",
+    "state": "OPEN", "isDraft": false, "headRefName": "wb/jira-hdo-hdo-2064-1", "baseRefName": "main",
+    "author": { "login": "vbo", "name": "V B" }, "updatedAt": "2026-11-05T09:30:00Z", "mergedAt": null,
+    "reviewDecision": "APPROVED", "mergeable": "MERGEABLE",
+    "statusCheckRollup": [
+      { "__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SKIPPED" },
+      { "__typename": "StatusContext", "context": "ci/legacy", "state": "SUCCESS" }
+    ]
+  },
+  {
+    "number": 413, "title": "WIP second attempt", "url": "https://github.com/acme/billing/pull/413",
+    "state": "OPEN", "isDraft": true, "headRefName": "feature/HDO-2064-retry", "baseRefName": "main",
+    "author": { "login": "vbo" }, "updatedAt": "2026-11-05T10:00:00Z", "mergedAt": null,
+    "reviewDecision": "", "mergeable": "UNKNOWN",
+    "statusCheckRollup": [ { "__typename": "CheckRun", "name": "build", "status": "IN_PROGRESS", "conclusion": null } ]
+  },
+  {
+    "number": 398, "title": "Fix cache (HDO-2064)", "url": "https://github.com/acme/billing/pull/398",
+    "state": "MERGED", "isDraft": false, "headRefName": "someone/cache-fix", "baseRefName": "main",
+    "author": { "login": "colleague" }, "updatedAt": "2026-11-01T08:00:00Z", "mergedAt": "2026-11-01T08:00:00Z",
+    "reviewDecision": "APPROVED", "mergeable": "UNKNOWN", "statusCheckRollup": []
+  },
+  {
+    "number": 377, "title": "Abandoned idea", "url": "https://github.com/acme/billing/pull/377",
+    "state": "CLOSED", "isDraft": false, "headRefName": "wb/jira-hdo-hdo-2064-0", "baseRefName": "main",
+    "author": { "login": "vbo" }, "updatedAt": "2026-10-20T08:00:00Z", "mergedAt": null,
+    "reviewDecision": "REVIEW_REQUIRED", "mergeable": "UNKNOWN", "statusCheckRollup": null
+  },
+  {
+    "number": 420, "title": "Broken one", "url": "https://github.com/acme/billing/pull/420",
+    "state": "OPEN", "isDraft": false, "headRefName": "wb/jira-hdo-hdo-2064-2", "baseRefName": "release/1",
+    "author": null, "updatedAt": "2026-11-04T12:00:00Z", "mergedAt": null,
+    "reviewDecision": "CHANGES_REQUESTED", "mergeable": "CONFLICTING",
+    "statusCheckRollup": [
+      { "__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "FAILURE" },
+      { "__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": null }
+    ]
+  },
+  { "number": "oops", "title": 5 },
+  "not an object"
+]
