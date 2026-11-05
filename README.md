@@ -80,6 +80,34 @@ Ready-made examples, each tested against sample output, are in `src/tickets/exam
 
 **Windows:** commands run in `cmd.exe`, so the `curl` examples' `$JIRA_EMAIL` style variables must be written `%JIRA_EMAIL%` there. These variables are your own settings; no ticket text is ever put into a command.
 
+### How-to: Jira with the Atlassian CLI (`twg`)
+
+The setup in short, from nothing to a session with the ticket's description in front of the agent:
+
+1. **Log in** once with the CLI (`twg`), so the command below works in a terminal.
+2. **Add the source** to `.vscode/settings.json` of the folder you open (or your user settings). Copy `src/tickets/examples/jira-twg.json` and set your site and JQL:
+   ```json
+   "agentWorkbench.ticketSources": [
+     {
+       "name": "Jira",
+       "scope": "workspace",
+       "listCmd": "twg jira workitem query --site YOUR-SITE.atlassian.net --jql \"project = PROJ AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC\" --fields summary,status,description --limit 100 -o json --output-summary none",
+       "itemsPath": "data.issues",
+       "map": { "id": "key", "title": "summary", "status": "status.name", "url": "url", "description": "description" }
+     }
+   ]
+   ```
+3. **Refresh** (the view's title bar). Your tickets appear under "Jira"; the tracker's status is shown read-only next to your own workbench status.
+4. **Work on this** (＋ on a ticket) creates a worktree and branch and starts the agent. The session's `.workbench/TASK.md` has the ticket's description in its own section, converted from Jira's rich text, followed by the raw ticket data.
+5. **Your own work shows up too.** Any local branch with the ticket key in its name (`feature/PROJ-123-export`) is listed under the ticket, with its changes and an editable diff when it is checked out.
+
+Notes:
+
+- `"scope": "workspace"` makes the command run once, not once per repo (Jira is not tied to a repo).
+- `--fields` must include `description`, otherwise there is nothing to show; after changing the command, Refresh again. Sessions created earlier keep their old TASK.md.
+- If VS Code cannot find `twg`, use its absolute path in `listCmd`.
+- With the REST API instead of a CLI, use `jira-rest.json`; it needs `JIRA_EMAIL` and `JIRA_API_TOKEN` in your environment (never in the settings file).
+
 ## Agents
 
 Built in: `claude` (Claude Code) and `codex`. Add or override profiles in `agentWorkbench.agents`:
