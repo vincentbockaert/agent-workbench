@@ -4,10 +4,14 @@ A VS Code control room for agentic coding, with **tickets as the root of the wor
 
 - Tickets from any tracker (GitHub, GitLab, Jira, Trello, …) are imported **read-only**; the workbench never changes a ticket.
 - "Work on this" creates an isolated **git worktree + branch** per session and starts an agent (Claude Code, Codex, or any CLI agent you configure). Your own working tree and open files are never touched.
-- Sessions run in parallel and **signal when they need you**: orange bell, view badge, status bar, notification. When an agent's turn is done (**your move**), its ticket shows a green reply icon and `your move`, and it counts in the view badge and the status bar (`↩ 2`), without a notification.
-- Each session shows its **changed files** with side-by-side diffs against where it started, and can be resumed, finished or deleted.
+- Sessions run in parallel and **signal when they need you**: an orange bell when an agent asks for input, a green ↩ **your move** when it finished its turn, both counted in the view badge and the status bar.
+- Each session shows its **changed files** with side-by-side diffs against where it started, and can be resumed, finished or deleted. The ticket tab lists the ticket's **pull requests** with checks and review state.
 - Every ticket has a local **workbench status** (To do → Doing → Review → Done), next to the tracker's read-only status.
-- Time on tickets is tracked **deterministically** from an append-only event log: your time, agent time and elapsed time, with a weekly report to enter into your timesheet.
+- A **work-item clock** follows the ticket you work in (▶ running, ⏸ paused) and is what gets booked; your time, agent time and elapsed time are kept next to it as evidence, all from an append-only log, with a report to enter into your timesheet.
+
+![The Work view with tickets, sessions and running clocks, next to a ticket tab with its session, pull request and time](docs/images/overview.png)
+
+<sub>Screenshots use made-up demo data.</sub>
 
 Not published to a marketplace: releases are `.vsix` files on this repository's [GitHub Releases page](https://github.com/vincentbockaert/agent-workbench/releases).
 
@@ -21,7 +25,7 @@ From source:
 ```bash
 npm install
 npm run package
-code --install-extension agent-workbench-0.0.1.vsix   # use code-insiders for VS Code Insiders
+code --install-extension agent-workbench-<version>.vsix   # use code-insiders for VS Code Insiders
 ```
 
 Or open this folder in VS Code and press F5 to run it in a development window.
@@ -37,7 +41,7 @@ Requirements: Git, Node.js on `PATH` (agent hooks call `bin/wb.js` with `node`),
 
 ## Several repositories in one window
 
-Open a parent folder (say `~/repos/harm`) and the workbench works with every repository directly inside it, regardless of where VS Code was started:
+Open a parent folder (say `~/repos`) and the workbench works with every repository directly inside it, regardless of where VS Code was started:
 
 - A folder that is itself a repo counts as one repo. Otherwise its direct subfolders with a `.git` folder are the repos (one level deep). Session worktrees (`<repo>.worktrees/…`) are never mistaken for repos.
 - Each ticket source runs in **each repo** and shows up as its own group, named `<source> · <repo>` (for example `GitHub · billing`), so ticket numbers of different repos never collide. With a single repo the names stay plain.
@@ -126,6 +130,15 @@ Placeholders: `${promptFile}` (the relative path `.workbench/TASK.md`), `${sessi
 
 ### "Needs your input" signals
 
+![Ticket rows show what waits for you: a bell for needs input, ↩ for your move, ▶/⏸ for the clock](docs/images/work-tree.png)
+
+| Session state | Session row | Ticket row | View badge and status bar |
+|---|---|---|---|
+| Needs input (approval, question) | orange bell | orange bell | counted, `🔔 1`; notification (`agentWorkbench.notifyOnNeedsInput`) |
+| Your move (turn done) | green check, `your move` | green ↩, `your move` | counted, `↩ 1`; no notification |
+| Working | blue spinner | work status icon | `1 working` |
+| Stopped | grey ⊘ | work status icon | — |
+
 Agents report their state through `bin/wb.js`, which writes `.workbench/status.json` in the session (from `$WB_STATUS_FILE`, set in each session terminal):
 
 - **Claude Code:** set up automatically. Opening an agent writes hooks into the worktree's `.claude/settings.local.json` (git-excluded).
@@ -204,6 +217,8 @@ Intervals left open (e.g. a crash) close at the last recorded event, never "now"
 
 ### Time report
 
+![Time report for one day: per ticket your time, agent time, elapsed, timer and the booked figure](docs/images/time-report.png)
+
 The clock opens the **Time Report** tab: pick a period, the booked figure and rounding; **Copy as CSV** for your timesheet. After you enter time in your tracker or timesheet yourself, **Mark as entered…** records that locally, so the report shows what is still open (and how much more, if you kept working after entering it).
 
 ## Where things are stored
@@ -215,6 +230,7 @@ In VS Code's global storage for the extension (`…/globalStorage/local.agent-wo
 | `sessions.json` | Sessions (repo, worktree, branch, ticket, agent) |
 | `tickets/<source>.json` | Ticket snapshots from the last refresh |
 | `ticket-status.json` | Workbench status per ticket |
+| `prs/<ticket>.json` | Pull requests per ticket from the last refresh |
 | `timelog/YYYY-MM.jsonl` | Time events (append-only) |
 | `entered.jsonl` | What you marked as entered (append-only) |
 
