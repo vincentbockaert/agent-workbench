@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AgentState, AgentStatus, describeSince } from '../agents/status';
+import { AgentState, AgentStatus, attentionOf, describeSince } from '../agents/status';
 import { BranchTarget, changesForTarget } from '../git/branchdiff';
 import { diffStats, LineStats } from '../git/diff';
 import { ChangedFile, changedFiles } from '../git/worktree';
@@ -185,12 +185,13 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         // The tracker's status is read-only (last import); the workbench status is yours.
         const tracker = listed ? ('status' in ticket && ticket.status ? `${ticket.source}: ${ticket.status}` : undefined) : 'not in list';
         const mark = this.clockMarkOf(key);
+        // A collapsed ticket still shows when one of its sessions waits for you: needs input, or your move (turn done).
+        const attention = attentionOf(sessions.map((s) => this.status(s.id)?.state));
         // On the clock, the mark carries today's time, so the plain "today" figure is left out.
-        item.description = [mark?.text, WORK_LABELS[work], tracker, mark ? undefined : this.todayLabel(key)].filter(Boolean).join(' · ');
+        item.description = [mark?.text, attention ? STATE_SHORT[attention] : undefined, WORK_LABELS[work], tracker, mark ? undefined : this.todayLabel(key)].filter(Boolean).join(' · ');
         item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\nWorkbench: ${WORK_LABELS[work]}${tracker ? `  \nTracker (read-only): ${tracker}` : ''}${mark ? `  \n${mark.tooltip}` : ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
-        // A collapsed ticket still shows when one of its sessions is waiting for you; that beats the clock icon.
-        const waiting = sessions.some((s) => this.status(s.id)?.state === 'needs-input');
-        item.iconPath = waiting ? STATE_ICONS['needs-input'] : mark ? CLOCK_ICONS[mark.running ? 'running' : 'paused'] : WORK_ICONS[work];
+        // Waiting for you beats the clock icon, which beats the work status.
+        item.iconPath = attention === 'needs-input' ? STATE_ICONS['needs-input'] : attention === 'done' ? YOUR_MOVE_ICON : mark ? CLOCK_ICONS[mark.running ? 'running' : 'paused'] : WORK_ICONS[work];
         item.contextValue = ticketContextValue({ listed, url: Boolean(ticket.url), onClock: mark !== undefined });
         item.command = { command: 'agentWorkbench.openTicketHub', title: 'Open Ticket', arguments: [node] };
         return item;
@@ -290,6 +291,9 @@ const STATE_ICONS: Record<AgentState, vscode.ThemeIcon> = {
   done: new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green')),
   exited: new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground')),
 };
+
+// Not the session row's check: on a ticket a check reads as "Done", not "waiting for you".
+const YOUR_MOVE_ICON = new vscode.ThemeIcon('reply', new vscode.ThemeColor('charts.green'));
 
 const CLOCK_ICONS = {
   running: new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.green')),

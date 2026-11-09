@@ -73,3 +73,23 @@ export function claudeHookSettings(wbScript: string): object {
   }
   return { hooks };
 }
+
+// What a ticket row signals from its sessions: needs input beats your move (turn done); anything else shows nothing.
+export function attentionOf(states: (AgentState | undefined)[]): 'needs-input' | 'done' | undefined {
+  return states.includes('needs-input') ? 'needs-input' : states.includes('done') ? 'done' : undefined;
+}
+
+// Sessions waiting for you, for the status bar (text undefined = hide) and the view badge (count).
+export function summarizeAttention(states: (AgentState | undefined)[]): { count: number; text?: string; tooltip: string } {
+  const waiting = states.filter((s) => s === 'needs-input').length;
+  const yourMove = states.filter((s) => s === 'done').length;
+  const plural = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
+  const text = [waiting > 0 ? `$(bell-dot) ${waiting}` : undefined, yourMove > 0 ? `$(reply) ${yourMove}` : undefined].filter(Boolean).join(' · ');
+  const tooltip = [
+    waiting > 0 ? `${plural(waiting)} need${waiting === 1 ? 's' : ''} your input` : undefined,
+    yourMove > 0 ? `${plural(yourMove)}: your move (turn done)` : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return { count: waiting + yourMove, ...(text ? { text } : {}), tooltip };
+}

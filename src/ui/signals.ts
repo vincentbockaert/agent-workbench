@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { StatusPoller } from '../agents/poller';
-import { AgentStatus, readStatusFile, shouldNotify, STATUS_FILE } from '../agents/status';
+import { AgentStatus, readStatusFile, shouldNotify, STATUS_FILE, summarizeAttention } from '../agents/status';
 import { statusFile } from '../agents/terminals';
 import { Session } from '../sessions/model';
 
@@ -109,12 +109,12 @@ export class StatusSignals implements vscode.Disposable {
   }
 
   private updateSummary(): void {
-    const waiting = [...this.statuses.values()].filter((s) => s?.state === 'needs-input').length;
-    const label = `${waiting} session${waiting === 1 ? '' : 's'} need${waiting === 1 ? 's' : ''} your input`;
-    this.view.badge = waiting > 0 ? { value: waiting, tooltip: label } : undefined;
-    this.statusBar.text = `$(bell-dot) ${waiting}`;
-    this.statusBar.tooltip = label;
-    if (waiting > 0) {
+    // Needs input and your move (turn done) both wait for you.
+    const attention = summarizeAttention([...this.statuses.values()].map((s) => s?.state));
+    this.view.badge = attention.count > 0 ? { value: attention.count, tooltip: attention.tooltip } : undefined;
+    this.statusBar.text = attention.text ?? '';
+    this.statusBar.tooltip = attention.tooltip;
+    if (attention.text) {
       this.statusBar.show();
     } else {
       this.statusBar.hide();

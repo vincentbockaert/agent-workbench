@@ -4,7 +4,7 @@ A VS Code control room for agentic coding, with **tickets as the root of the wor
 
 - Tickets from any tracker (GitHub, GitLab, Jira, Trello, …) are imported **read-only**; the workbench never changes a ticket.
 - "Work on this" creates an isolated **git worktree + branch** per session and starts an agent (Claude Code, Codex, or any CLI agent you configure). Your own working tree and open files are never touched.
-- Sessions run in parallel and **signal when they need you**: orange bell, view badge, status bar, notification.
+- Sessions run in parallel and **signal when they need you**: orange bell, view badge, status bar, notification. When an agent's turn is done (**your move**), its ticket shows a green reply icon and `your move`, and it counts in the view badge and the status bar (`↩ 2`), without a notification.
 - Each session shows its **changed files** with side-by-side diffs against where it started, and can be resumed, finished or deleted.
 - Every ticket has a local **workbench status** (To do → Doing → Review → Done), next to the tracker's read-only status.
 - Time on tickets is tracked **deterministically** from an append-only event log: your time, agent time and elapsed time, with a weekly report to enter into your timesheet.
