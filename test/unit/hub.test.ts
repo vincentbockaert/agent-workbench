@@ -117,6 +117,12 @@ describe('hub', () => {
       assert.deepEqual(m.week, { yourMs: 0, agentMs: 0, elapsedMs: 0, timerMs: 0, bookedMs: 0 });
       assert.deepEqual(m.timeline.you, []);
     });
+
+    it('passes the clock mark through, and leaves it out when the ticket is off the clock', () => {
+      const mark = { running: true, text: '▶ 12m', tooltip: 'On the clock: running (12m today)' };
+      assert.deepEqual(buildTicketHub(input({ clock: mark })).clock, mark);
+      assert.ok(!('clock' in buildTicketHub(input())));
+    });
   });
 
   describe('renderTicketHub', () => {
@@ -149,6 +155,22 @@ describe('hub', () => {
       assert.match(renderTicketHub(model({ listed: false }), 'n', 'c'), /data-command="newSession"[^>]*disabled/);
     });
 
+    it('shows a running clock with a Stop Timer button, a paused one with Resume and Stop, and none with Start Timer', () => {
+      const m = buildTicketHub(input());
+      const running = renderTicketHub({ ...m, clock: { running: true, text: '▶ 1h 12m', tooltip: 'On the clock: running' } }, 'n', 'c');
+      assert.match(running, /class="clock running"[^>]*title="On the clock: running"[^>]*>▶ 1h 12m · running</);
+      assert.match(running, /data-command="stopTimer"/);
+      assert.ok(!running.includes('data-command="startTimer"'));
+      const paused = renderTicketHub({ ...m, clock: { running: false, text: '⏸ 25m', tooltip: 'paused' } }, 'n', 'c');
+      assert.match(paused, /class="clock paused"[^>]*>⏸ 25m · paused</);
+      assert.match(paused, /data-command="startTimer"[^>]*>Resume timer</);
+      assert.match(paused, /data-command="stopTimer"/);
+      const off = renderTicketHub(m, 'n', 'c');
+      assert.ok(!off.includes('class="clock'));
+      assert.match(off, /data-command="startTimer"[^>]*>Start timer</);
+      assert.ok(!off.includes('data-command="stopTimer"'));
+    });
+
     it('omits "Open in tracker" without a url', () => {
       assert.ok(!renderTicketHub(model({ url: undefined }), 'n', 'c').includes('data-command="openInBrowser"'));
     });
@@ -158,6 +180,8 @@ describe('hub', () => {
     it('accepts known commands and rejects anything else', () => {
       assert.deepEqual(parseHubMessage({ command: 'openAgent', session: 's-1' }), { command: 'openAgent', session: 's-1' });
       assert.deepEqual(parseHubMessage({ command: 'newSession' }), { command: 'newSession' });
+      assert.deepEqual(parseHubMessage({ command: 'startTimer' }), { command: 'startTimer' });
+      assert.deepEqual(parseHubMessage({ command: 'stopTimer' }), { command: 'stopTimer' });
       assert.equal(parseHubMessage({ command: 'openAgent' }), undefined);
       assert.equal(parseHubMessage({ command: 'runShell', cmd: 'rm -rf /' }), undefined);
       assert.equal(parseHubMessage('openAgent'), undefined);

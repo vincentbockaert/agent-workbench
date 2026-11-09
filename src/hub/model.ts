@@ -1,3 +1,4 @@
+import { ClockMark } from '../time/clockbar';
 import { AgentStatus, describeSince } from '../agents/status';
 import { LineStats } from '../git/diff';
 import { Session } from '../sessions/model';
@@ -68,6 +69,7 @@ export interface HubModel {
   days: HubDay[];
   pullRequests: HubPullRequests;
   timeline: { you: [number, number][]; agents: [number, number][]; timer: [number, number][]; hours: { label: string; at: number }[] }; // fractions 0..1
+  clock?: ClockMark; // present while the ticket is on the clock
 }
 
 export interface HubInput {
@@ -82,6 +84,8 @@ export interface HubInput {
   opts: ReportOptions;
   // From the PR cache; undefined or disabled = the page shows no pull request section.
   pullRequests?: { enabled: boolean; snapshot?: PrSnapshot; refreshing: boolean };
+  // Running or paused on the work-item clock, with today's timer; undefined = off the clock.
+  clock?: ClockMark;
 }
 
 // Pure: everything the ticket hub shows, computed from stored data only.
@@ -118,7 +122,7 @@ export function buildTicketHub(input: HubInput): HubModel {
     return { label: WEEKDAYS[new Date(day.start).getDay()], elapsedMs: t?.elapsedMs ?? 0, isToday: now.getTime() >= day.start && now.getTime() < day.end };
   });
 
-  return { ticket, sessions, week, days, pullRequests: pullRequestsOf(input), timeline: timeline(input) };
+  return { ticket, sessions, week, days, pullRequests: pullRequestsOf(input), timeline: timeline(input), ...(input.clock ? { clock: input.clock } : {}) };
 }
 
 // "just now", "5m ago", "2h ago", "3d ago".

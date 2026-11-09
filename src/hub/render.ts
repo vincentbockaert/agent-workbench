@@ -12,10 +12,12 @@ export type HubMessage =
   | { command: 'openTask'; session: string }
   | { command: 'refreshPrs' }
   | { command: 'openPr'; pr: string }
-  | { command: 'setStatus'; status: WorkStatus };
+  | { command: 'setStatus'; status: WorkStatus }
+  | { command: 'startTimer' }
+  | { command: 'stopTimer' };
 
 const SESSION_COMMANDS = ['openAgent', 'openShell', 'openTask'];
-const TICKET_COMMANDS = ['newSession', 'openInBrowser', 'adjustTime', 'refreshPrs'];
+const TICKET_COMMANDS = ['newSession', 'openInBrowser', 'adjustTime', 'refreshPrs', 'startTimer', 'stopTimer'];
 
 function esc(s: string | undefined): string {
   return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -134,6 +136,8 @@ h2{margin:0 0 10px;font-size:11px;letter-spacing:.06em;font-weight:600;color:var
 .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--vscode-descriptionForeground)}
 .meta label{display:flex;gap:6px;align-items:center}
 select{font:inherit;min-height:24px;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border)}
+.clock{padding:2px 8px;border-radius:10px;font-weight:600;color:var(--vscode-editor-background)}
+.clock.running{background:var(--vscode-charts-green)}.clock.paused{background:var(--vscode-charts-yellow)}
 .pill{padding:2px 8px;border-radius:10px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
 header{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:flex-start}
 header .text{flex:999 1 480px;min-width:0;display:flex;flex-direction:column;gap:10px}
@@ -175,12 +179,14 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
       <label>Status <select id="workStatus">${WORK_STATUSES.map((s) => `<option value="${s}"${s === (ticket.workStatus ?? 'todo') ? ' selected' : ''}>${WORK_LABELS[s]}</option>`).join('')}</select></label>
       ${ticket.status ? `<span title="From the last import; never changed by the workbench">${esc(ticket.source)}: ${esc(ticket.status)}</span>` : ''}
       ${ticket.listed ? '' : '<span>not in the tracker list anymore</span>'}
+      ${model.clock ? `<span class="clock ${model.clock.running ? 'running' : 'paused'}" title="${esc(model.clock.tooltip)}">${esc(model.clock.text)} · ${model.clock.running ? 'running' : 'paused'}</span>` : ''}
     </div>
     <h1>${esc(ticket.title)}</h1>
     ${ticket.description ? `<p class="desc">${esc(ticket.description)}</p>` : ''}
   </div>
   <div class="buttons">
     ${ticket.url ? '<button data-command="openInBrowser">Open in tracker</button>' : ''}
+    ${timerButtons(model.clock)}
     <button data-command="adjustTime">Adjust time…</button>
     <button class="primary" data-command="newSession"${ticket.listed ? '' : ' disabled title="Refresh tickets: this ticket is no longer listed"'}>Work on this in new session</button>
   </div>
@@ -234,6 +240,15 @@ for (const b of document.querySelectorAll('button[data-command]')) {
 }
 
 // Only known commands with the fields they need; anything else from the page is ignored.
+// Start when off the clock; Resume (make it the active one) and Stop when paused; Stop when running.
+function timerButtons(clock: HubModel['clock']): string {
+  if (!clock) {
+    return '<button data-command="startTimer" title="Put this ticket on the work-item clock">Start timer</button>';
+  }
+  const resume = clock.running ? '' : '<button data-command="startTimer" title="Make this the ticket the clock runs on">Resume timer</button>';
+  return `${resume}<button data-command="stopTimer" title="Take this ticket off the clock">Stop timer</button>`;
+}
+
 export function parseHubMessage(msg: unknown): HubMessage | undefined {
   if (msg === null || typeof msg !== 'object') {
     return undefined;

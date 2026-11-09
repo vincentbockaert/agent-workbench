@@ -4,6 +4,7 @@ import { AgentStatus } from '../agents/status';
 import { diffStats } from '../git/diff';
 import { changedFiles } from '../git/worktree';
 import { Session } from '../sessions/model';
+import { ClockMark } from '../time/clockbar';
 import { reportOptions } from '../time/commands';
 import { readEvents } from '../time/log';
 import { localDays } from '../time/report';
@@ -19,6 +20,8 @@ export interface HubDeps {
   onMessage: (key: string, msg: HubMessage, session: Session | undefined) => void;
   // The pull requests cache and refresh state of a ticket; undefined or disabled = no section.
   pullRequests: (key: string) => HubInput['pullRequests'];
+  // Running/paused with today's timer while the ticket is on the clock.
+  clockMark?: (key: string) => ClockMark | undefined;
   // The tab was opened: a chance to refresh what is stale.
   onOpen?: (key: string) => void;
 }
@@ -86,7 +89,7 @@ export class TicketHubs implements vscode.Disposable {
     const week = localDays(monday, new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6));
     const { events } = readEvents(this.deps.logDir, { start: week[0].start, end: week[6].end });
 
-    const input: HubInput = { ticket, sessions, statuses: {}, changes: {}, events, week, now, opts: reportOptions(), pullRequests: this.deps.pullRequests(key) };
+    const input: HubInput = { ticket, sessions, statuses: {}, changes: {}, events, week, now, opts: reportOptions(), pullRequests: this.deps.pullRequests(key), clock: this.deps.clockMark?.(key) };
     await Promise.all(
       sessions.map(async (s) => {
         input.statuses[s.id] = this.deps.status(s.id);

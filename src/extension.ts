@@ -21,7 +21,7 @@ import { addWorktreeForBranch } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment } from './time/commands';
-import { shortLabel } from './time/clockbar';
+import { clockMark, shortLabel } from './time/clockbar';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
@@ -182,6 +182,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logDir,
     findTicket,
     pullRequests: (key) => ({ enabled: prSettings().enabled, snapshot: readPrSnapshot(prDir, key), refreshing: prRefreshing.has(key) }),
+    clockMark: (key) => {
+      const state = tracker.clock.state();
+      if (!state.onClock.includes(key)) {
+        return undefined;
+      }
+      const totals = tracker.liveToday();
+      return clockMark(key, state, (k) => totals[k]?.timerMs ?? 0);
+    },
     onOpen: (key) => {
       if (prSettings().enabled && isStale(readPrSnapshot(prDir, key), new Date(), prSettings().maxAgeMs)) {
         void refreshPrs(key);
@@ -216,6 +224,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return session ? void guarded(() => agents.open(session)) : undefined;
         case 'openShell':
           return session ? openShell(session) : undefined;
+        case 'startTimer':
+          return tracker.clock.start(key);
+        case 'stopTimer':
+          return tracker.clock.stop(key);
         case 'openTask':
           return session ? void vscode.commands.executeCommand('agentWorkbench.openSessionTask', { kind: 'session', session }) : undefined;
       }
