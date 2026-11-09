@@ -27,3 +27,21 @@ export function renderClockBar(
   });
   return { text, tooltip: `${lines.join('\n')}\n\nThe clock follows the ticket you work in. Click to stop or switch.` };
 }
+
+export type ClockState = { onClock: string[]; active: string | undefined };
+export interface ClockMark {
+  running: boolean;
+  text: string;
+  tooltip: string;
+}
+
+// The mark a ticket or ad-hoc session carries in the tree and its ticket tab while it is on the clock.
+export function clockMark(key: string, state: ClockState, timerMs: (key: string) => number): ClockMark | undefined {
+  if (!state.onClock.includes(key)) {
+    return undefined;
+  }
+  const time = formatDuration(timerMs(key));
+  return key === state.active
+    ? { running: true, text: `▶ ${time}`, tooltip: `On the clock: running (${time} today)` }
+    : { running: false, text: `⏸ ${time}`, tooltip: `On the clock: paused (${time} today); resumes when you work in it again` };
+}

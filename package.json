@@ -261,13 +261,23 @@
       ],
       "view/item/context": [
         {
+          "command": "agentWorkbench.startTimer",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket(Unlisted)?(WithUrl)?$/",
+          "group": "inline@0"
+        },
+        {
+          "command": "agentWorkbench.stopTimer",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket.*OnClock$/",
+          "group": "inline@0"
+        },
+        {
           "command": "agentWorkbench.newSessionForTicket",
-          "when": "view == agentWorkbench.work && viewItem =~ /^ticket(WithUrl)?$/",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket(WithUrl)?(OnClock)?$/",
           "group": "inline@1"
         },
         {
           "command": "agentWorkbench.openTicketInBrowser",
-          "when": "view == agentWorkbench.work && viewItem =~ /^ticket.*WithUrl$/",
+          "when": "view == agentWorkbench.work && viewItem =~ /^ticket.*WithUrl(OnClock)?$/",
           "group": "inline@2"
         },
         {

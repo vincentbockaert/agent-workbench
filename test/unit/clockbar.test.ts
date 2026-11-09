@@ -1,5 +1,5 @@
 import { strict as assert } from 'assert';
-import { renderClockBar, shortLabel } from '../../src/time/clockbar';
+import { clockMark, renderClockBar, shortLabel } from '../../src/time/clockbar';
 
 const MIN = 60_000;
 const A = 'Jira HDO:HDO-2064';
@@ -33,5 +33,31 @@ describe('clock bar', () => {
     assert.equal(shortLabel('GitHub:42', {}), '42');
     assert.equal(shortLabel('adhoc:spike-1', { 'adhoc:spike-1': 'Try the parser' }), 'Try the parser');
     assert.equal(shortLabel('adhoc:spike-1', {}), 'spike-1');
+  });
+});
+
+describe('clockmark (tree and ticket tab)', () => {
+  it('marks the active ticket as running with its time today', () => {
+    assert.deepEqual(clockMark(A, { onClock: [A, B], active: A }, (k) => times[k]), {
+      running: true,
+      text: '▶ 1h 12m',
+      tooltip: 'On the clock: running (1h 12m today)',
+    });
+  });
+
+  it('marks a ticket on the clock that is not active as paused', () => {
+    assert.deepEqual(clockMark(B, { onClock: [A, B], active: A }, (k) => times[k]), {
+      running: false,
+      text: '⏸ 25m',
+      tooltip: 'On the clock: paused (25m today); resumes when you work in it again',
+    });
+  });
+
+  it('returns nothing for a ticket that is off the clock', () => {
+    assert.equal(clockMark('GitHub:42', { onClock: [A], active: A }, (k) => times[k] ?? 0), undefined);
+  });
+
+  it('shows 0m for a ticket just put on the clock', () => {
+    assert.equal(clockMark(A, { onClock: [A], active: A }, () => 20_000)?.text, '▶ 0m');
   });
 });

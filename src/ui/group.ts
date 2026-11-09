@@ -71,3 +71,8 @@ export function groupWork(sources: TicketSourceConfig[], snapshots: (Snapshot | 
   const other = sessions.filter((s) => !s.ticket || !configured.has(s.ticket.source));
   return { sources: groups, other };
 }
+
+// The tree's contextValue for a ticket row, e.g. "ticket", "ticketWithUrl", "ticketUnlistedWithUrlOnClock": menus match on these.
+export function ticketContextValue(t: { listed: boolean; url: boolean; onClock: boolean }): string {
+  return `ticket${t.listed ? '' : 'Unlisted'}${t.url ? 'WithUrl' : ''}${t.onClock ? 'OnClock' : ''}`;
+}

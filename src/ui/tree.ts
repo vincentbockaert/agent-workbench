@@ -6,6 +6,7 @@ import { diffStats, LineStats } from '../git/diff';
 import { ChangedFile, changedFiles } from '../git/worktree';
 import { Session } from '../sessions/model';
 import { changeUri } from './changes';
+import { ClockMark, clockMark, ClockState } from '../time/clockbar';
 import { displayedMs } from '../time/commands';
 import { sumTotals, Totals } from '../time/compute';
 import { formatDuration } from '../time/report';
@@ -15,7 +16,7 @@ import { isTicketKey } from '../tickets/work';
 import { ManualBranch, manualBranchesForTicket, WorkIndex } from '../tickets/workIndex';
 import { TicketSourceConfig } from '../tickets/source';
 import { WORK_LABELS, WorkStatus } from '../tickets/workflow';
-import { filterWork, groupWork, SourceGroup, TicketGroup } from './group';
+import { filterWork, groupWork, SourceGroup, TicketGroup, ticketContextValue } from './group';
 
 export type WorkNode =
   | { kind: 'source'; group: SourceGroup }
@@ -42,7 +43,23 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly today: () => Record<string, Totals>,
     private readonly workStatus: (ticketKey: string) => WorkStatus,
     private readonly work: WorkIndex,
+    private readonly clock: () => ClockState = () => ({ onClock: [], active: undefined }),
+    private readonly live: () => Record<string, Totals> = () => ({}),
   ) {}
+
+  // Live totals are computed at most once per refresh, and only when something is on the clock.
+  private liveCache?: Record<string, Totals>;
+
+  // ▶/⏸ with today's timer, for a ticket or ad-hoc session on the clock.
+  private clockMarkOf(key: string): ClockMark | undefined {
+    const state = this.clock();
+    if (!state.onClock.includes(key)) {
+      return undefined;
+    }
+    this.liveCache ??= this.live();
+    const totals = this.liveCache;
+    return clockMark(key, state, (k) => totals[k]?.timerMs ?? 0);
+  }
 
   // "Hide Done Tickets" toggle.
   hideDone = false;
@@ -56,6 +73,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
   filter = '';
 
   refresh(): void {
+    this.liveCache = undefined;
     this.changed.fire();
   }
 
@@ -166,13 +184,14 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const work = this.workStatus(key);
         // The tracker's status is read-only (last import); the workbench status is yours.
         const tracker = listed ? ('status' in ticket && ticket.status ? `${ticket.source}: ${ticket.status}` : undefined) : 'not in list';
-        item.description = [WORK_LABELS[work], tracker, this.todayLabel(key)].filter(Boolean).join(' · ');
-        item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\nWorkbench: ${WORK_LABELS[work]}${tracker ? `  \nTracker (read-only): ${tracker}` : ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
-        // A collapsed ticket still shows when one of its sessions is waiting for you.
+        const mark = this.clockMarkOf(key);
+        // On the clock, the mark carries today's time, so the plain "today" figure is left out.
+        item.description = [mark?.text, WORK_LABELS[work], tracker, mark ? undefined : this.todayLabel(key)].filter(Boolean).join(' · ');
+        item.tooltip = new vscode.MarkdownString(`**${ticket.id}** ${ticket.title}\n\nWorkbench: ${WORK_LABELS[work]}${tracker ? `  \nTracker (read-only): ${tracker}` : ''}${mark ? `  \n${mark.tooltip}` : ''}${ticket.url ? `\n\n${ticket.url}` : ''}`);
+        // A collapsed ticket still shows when one of its sessions is waiting for you; that beats the clock icon.
         const waiting = sessions.some((s) => this.status(s.id)?.state === 'needs-input');
-        item.iconPath = waiting ? STATE_ICONS['needs-input'] : WORK_ICONS[work];
-        // e.g. "ticket", "ticketWithUrl", "ticketUnlistedWithUrl": menus match on these.
-        item.contextValue = `ticket${listed ? '' : 'Unlisted'}${ticket.url ? 'WithUrl' : ''}`;
+        item.iconPath = waiting ? STATE_ICONS['needs-input'] : mark ? CLOCK_ICONS[mark.running ? 'running' : 'paused'] : WORK_ICONS[work];
+        item.contextValue = ticketContextValue({ listed, url: Boolean(ticket.url), onClock: mark !== undefined });
         item.command = { command: 'agentWorkbench.openTicketHub', title: 'Open Ticket', arguments: [node] };
         return item;
       }
@@ -188,13 +207,16 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         // Collapsed by default: expanding runs git to list the changed files.
         const item = new vscode.TreeItem(s.title ?? s.id, vscode.TreeItemCollapsibleState.Collapsed);
         // Ticket sessions book on their ticket (shown there); ad-hoc sessions show their own time.
-        const today = s.ticket ? undefined : this.todayLabel(ticketKey(s));
+        // Ad-hoc sessions are their own clock key; ticket sessions show the clock on their ticket.
+        const mark = s.ticket ? undefined : this.clockMarkOf(ticketKey(s));
+        const today = s.ticket || mark ? undefined : this.todayLabel(ticketKey(s));
         const status = this.status(s.id);
         const state = status && `${STATE_SHORT[status.state]} · ${describeSince(status, new Date())}`;
         // Ad-hoc sessions sit outside any repo group, so name their repo; ticket sessions show it via their source.
-        item.description = [s.title ? s.id : undefined, s.ticket ? undefined : path.basename(s.repo), s.agent, state, today].filter(Boolean).join(' · ');
+        item.description = [mark?.text, s.title ? s.id : undefined, s.ticket ? undefined : path.basename(s.repo), s.agent, state, today].filter(Boolean).join(' · ');
         item.tooltip = [
           status && `${STATE_LABELS[status.state]}${status.message ? `: ${status.message}` : ''}`,
+          mark?.tooltip,
           s.branch,
           s.worktree,
           `based on ${s.baseRef}, created ${s.createdAt}`,
@@ -267,6 +289,11 @@ const STATE_ICONS: Record<AgentState, vscode.ThemeIcon> = {
   working: new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.blue')),
   done: new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green')),
   exited: new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('disabledForeground')),
+};
+
+const CLOCK_ICONS = {
+  running: new vscode.ThemeIcon('play-circle', new vscode.ThemeColor('charts.green')),
+  paused: new vscode.ThemeIcon('debug-pause', new vscode.ThemeColor('charts.yellow')),
 };
 
 const WORK_ICONS: Record<WorkStatus, vscode.ThemeIcon> = {

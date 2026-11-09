@@ -78,7 +78,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // Branches and worktrees of every repo, read once per refresh so tickets can list their manual work.
   const workIndex = new WorkIndex(() => repos);
-  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex);
+  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex, () => tracker.clock.state(), () => tracker.liveToday());
   void workIndex.ensure().then(() => tree.refresh());
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
