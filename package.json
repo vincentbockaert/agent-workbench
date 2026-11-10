@@ -197,6 +197,12 @@
         "title": "Timers…",
         "category": "Agent Workbench",
         "icon": "$(watch)"
+      },
+      {
+        "command": "agentWorkbench.changeAgentOptions",
+        "title": "Change Model and Effort…",
+        "category": "Agent Workbench",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -321,6 +327,11 @@
           "group": "0_agent@3"
         },
         {
+          "command": "agentWorkbench.changeAgentOptions",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "0_agent@4"
+        },
+        {
           "command": "agentWorkbench.openSessionTask",
           "when": "view == agentWorkbench.work && viewItem == session",
           "group": "1_open"
@@ -420,6 +431,10 @@
           "when": "agentWorkbench.inSession"
         },
         {
+          "command": "agentWorkbench.changeAgentOptions",
+          "when": "agentWorkbench.inSession"
+        },
+        {
           "command": "agentWorkbench.startAgent",
           "when": "false"
         },
@@ -451,7 +466,7 @@
         "agentWorkbench.agents": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`.",
+          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`, and `${options}` for the model and effort picked when you start work (see `modelArg`, `effortArg`).",
           "items": {
             "type": "object",
             "required": [
@@ -478,6 +493,36 @@
               "resumeCmd": {
                 "type": "string",
                 "description": "Continues the latest conversation in this worktree, e.g. `claude --continue`."
+              },
+              "modelArg": {
+                "type": "string",
+                "description": "How to pass a model, with ${value} for it, e.g. `--model ${value}`. Lands at ${options} in the commands."
+              },
+              "effortArg": {
+                "type": "string",
+                "description": "How to pass an effort level, e.g. `--effort ${value}`. Lands at ${options} in the commands."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models the picker offers (you can always type another)."
+              },
+              "efforts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Effort levels the picker offers."
+              },
+              "defaultModel": {
+                "type": "string",
+                "description": "Model preselected when this ticket has no earlier choice and agentWorkbench.agentDefaults sets none."
+              },
+              "defaultEffort": {
+                "type": "string",
+                "description": "Effort preselected when this ticket has no earlier choice and agentWorkbench.agentDefaults sets none."
               }
             }
           }
@@ -486,6 +531,23 @@
           "type": "string",
           "default": "claude",
           "description": "Agent profile id used when a session starts its agent automatically or via Open Agent."
+        },
+        "agentWorkbench.agentDefaults": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Model and effort preselected per agent when a ticket has no earlier choice, e.g. `{ \"claude\": { \"model\": \"opus\", \"effort\": \"high\" } }`. Without an entry, Claude Code preselects `sonnet` and `medium`. You still pick when you start work; this only sets what Enter accepts.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              }
+            }
+          }
         },
         "agentWorkbench.baseBranch": {
           "type": "string",

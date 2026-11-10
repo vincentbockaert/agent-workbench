@@ -77,6 +77,14 @@ export function optionsText(p: AgentProfile, opts: AgentOptions): string {
   return parts.join(' ');
 }
 
+// What a fresh start uses when nothing was picked: your configured default per agent, else the profile's own,
+// and only for an option the agent can take.
+export function defaultOptions(p: AgentProfile, configured: AgentOptions | undefined): AgentOptions {
+  const model = p.modelArg ? configured?.model ?? p.defaultModel : undefined;
+  const effort = p.effortArg ? configured?.effort ?? p.defaultEffort : undefined;
+  return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+}
+
 export const OTHER = '\u0000other';
 
 export interface OptionChoice {

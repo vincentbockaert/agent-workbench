@@ -3,7 +3,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Session } from '../sessions/model';
 import { SessionStore } from '../sessions/store';
-import { AgentMode, AgentProfile, agentCommand, mergeProfiles } from './profiles';
+import { defaultOptionsFor, pickAgentOptions } from './optionsPick';
+import { AgentMode, AgentOptions, AgentProfile, agentCommand, mergeProfiles } from './profiles';
 import { AgentState, CLAUDE_SETTINGS_FILE, claudeHookSettings, readStatusFile, STATUS_FILE, writeStatusFile } from './status';
 
 function config(): vscode.WorkspaceConfiguration {
@@ -60,14 +61,24 @@ export class AgentTerminals implements vscode.Disposable {
 
   async start(session: Session, pick: boolean): Promise<void> {
     const profile = pick ? await this.pickProfile() : this.defaultProfile();
-    if (profile) {
-      this.run(session, profile, 'start');
+    if (!profile) {
+      return;
     }
+    // Picking the agent also picks its model and effort, preselecting what this session used with it.
+    let opts: AgentOptions | undefined;
+    if (pick) {
+      const current = this.current(session);
+      opts = await pickAgentOptions(profile, current.agent === profile.id ? storedOptions(current) : {}, current.title ?? current.id);
+      if (!opts) {
+        return;
+      }
+    }
+    this.run(session, profile, 'start', opts);
   }
 
   // withPrompt: hand the agent the TASK.md prompt; otherwise open it bare, in the worktree, for the user to type.
-  startWith(session: Session, profile: AgentProfile, withPrompt = true): void {
-    this.run(session, profile, withPrompt ? 'start' : 'start-bare');
+  startWith(session: Session, profile: AgentProfile, withPrompt = true, opts?: AgentOptions): void {
+    this.run(session, profile, withPrompt ? 'start' : 'start-bare', opts);
   }
 
   async resume(session: Session): Promise<void> {
@@ -85,8 +96,12 @@ export class AgentTerminals implements vscode.Disposable {
     this.listeners.forEach((l) => l.dispose());
   }
 
-  private run(session: Session, profile: AgentProfile, mode: AgentMode): void {
-    const cmd = agentCommand(profile, mode, { sessionId: session.id, branch: session.branch });
+  // opts: what was just picked. Otherwise the session's own choice for this agent (an older session without one
+  // resumes with no flags, as before), or for an agent new to the session the configured/profile default.
+  private run(session: Session, profile: AgentProfile, mode: AgentMode, opts?: AgentOptions): void {
+    const current = this.current(session);
+    const used = opts ?? (current.agent === profile.id ? storedOptions(current) : defaultOptionsFor(profile));
+    const cmd = agentCommand(profile, mode, { sessionId: session.id, branch: session.branch }, used);
     this.installClaudeHooks(session);
     const terminal = vscode.window.createTerminal({
       name: `${profile.label}: ${session.id}`,
@@ -98,10 +113,15 @@ export class AgentTerminals implements vscode.Disposable {
     this.onTerminal(terminal, session);
     terminal.show();
     terminal.sendText(cmd);
-    if (session.agent !== profile.id) {
-      this.store.update(session.id, { agent: profile.id });
+    if (current.agent !== profile.id || current.model !== used.model || current.effort !== used.effort) {
+      this.store.update(session.id, { agent: profile.id, model: used.model, effort: used.effort });
       this.onChange();
     }
+  }
+
+  // The stored record, which may be newer than the copy a caller holds (model and effort change).
+  private current(session: Session): Session {
+    return this.store.list().find((s) => s.id === session.id) ?? session;
   }
 
   // Rewritten on every run so the hook path follows extension updates. Other agents ignore this file.
@@ -157,4 +177,8 @@ export class AgentTerminals implements vscode.Disposable {
     );
     return picked?.profile;
   }
+}
+
+function storedOptions(s: Session): AgentOptions {
+  return { ...(s.model ? { model: s.model } : {}), ...(s.effort ? { effort: s.effort } : {}) };
 }

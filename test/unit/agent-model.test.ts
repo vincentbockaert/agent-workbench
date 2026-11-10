@@ -1,6 +1,7 @@
 import { strict as assert } from 'assert';
 import { lastOptions } from '../../src/agents/choices';
-import { AgentProfile, agentCommand, DEFAULT_PROFILES, mergeProfiles, OTHER, optionChoices, supportsOptions } from '../../src/agents/profiles';
+import manifest from '../../package.json';
+import { AgentProfile, agentCommand, DEFAULT_PROFILES, defaultOptions, mergeProfiles, OTHER, optionChoices, supportsOptions } from '../../src/agents/profiles';
 
 const claude = DEFAULT_PROFILES.find((p) => p.id === 'claude')!;
 const codex = DEFAULT_PROFILES.find((p) => p.id === 'codex')!;
@@ -95,5 +96,25 @@ describe('agent model and effort', () => {
       assert.deepEqual(lastOptions(sessions, { source: 'Jira', id: 'P-3' }, 'claude'), {});
       assert.deepEqual(lastOptions(sessions, undefined, 'claude'), {}, 'ad-hoc work has no history to go by');
     });
+  });
+
+  describe('defaultOptions', () => {
+    it('uses your configured default per agent over the profile default, and only for what the agent can take', () => {
+      assert.deepEqual(defaultOptions(claude, undefined), { model: 'sonnet', effort: 'medium' });
+      assert.deepEqual(defaultOptions(claude, { model: 'opus' }), { model: 'opus', effort: 'medium' });
+      assert.deepEqual(defaultOptions(codex, undefined), {});
+      assert.deepEqual(defaultOptions({ id: 'x', label: 'X', startCmd: 'x ${options}', effortArg: '-e ${value}' }, { model: 'm', effort: 'low' }), { effort: 'low' });
+    });
+  });
+
+  it('declares the settings and the new profile fields in the manifest', () => {
+    const props = (manifest as any).contributes.configuration.properties;
+    assert.deepEqual(props['agentWorkbench.agentDefaults'].default, {});
+    const fields = Object.keys(props['agentWorkbench.agents'].items.properties);
+    for (const f of ['modelArg', 'effortArg', 'models', 'efforts', 'defaultModel', 'defaultEffort']) {
+      assert.ok(fields.includes(f), f);
+    }
+    const commands = (manifest as any).contributes.commands.map((c: { command: string }) => c.command);
+    assert.ok(commands.includes('agentWorkbench.changeAgentOptions'));
   });
 });

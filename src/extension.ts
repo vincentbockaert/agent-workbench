@@ -1,8 +1,9 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { agentChoices } from './agents/choices';
-import { agentCommand } from './agents/profiles';
+import { agentChoices, lastOptions } from './agents/choices';
+import { defaultOptionsFor, pickAgentOptions } from './agents/optionsPick';
+import { agentCommand, AgentOptions, supportsOptions } from './agents/profiles';
 import { agentProfiles, AgentTerminals } from './agents/terminals';
 import { WORK_VIEW_ID } from './constants';
 import { HubTicket } from './hub/model';
@@ -313,7 +314,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           label: choice.label,
           description: choice.description,
           detail: choice.profile
-            ? agentCommand(choice.profile, 'start-bare', { sessionId: predicted, branch: `wb/${predicted}` })
+            ? agentCommand(choice.profile, 'start-bare', { sessionId: predicted, branch: `wb/${predicted}` }, {
+                ...defaultOptionsFor(choice.profile),
+                ...lastOptions(store.list(), opts.ticket ? { source: opts.ticket.source, id: opts.ticket.id } : undefined, choice.profile.id),
+              })
             : 'Work on it yourself; time is still tracked on this ticket',
           choice,
         })),
@@ -325,6 +329,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (!picked) {
         return;
+      }
+      // With an agent: its model and effort, preselecting what this ticket used last, else your default.
+      let agentOpts: AgentOptions | undefined;
+      if (picked.choice.profile) {
+        const ticketRef = opts.ticket ? { source: opts.ticket.source, id: opts.ticket.id } : undefined;
+        agentOpts = await pickAgentOptions(picked.choice.profile, lastOptions(store.list(), ticketRef, picked.choice.profile.id), opts.ticket ? opts.ticket.id : opts.adhoc!.title);
+        if (!agentOpts) {
+          return;
+        }
       }
       // With an agent: let the user write its first request. Empty or a closed tab starts it with no prompt.
       let instructions: string | undefined = '';
@@ -340,7 +353,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       advance(session, 'session-started');
       changed();
       if (picked.choice.profile) {
-        agents.startWith(session, picked.choice.profile, instructions !== '');
+        agents.startWith(session, picked.choice.profile, instructions !== '', agentOpts);
       } else {
         await vscode.window.showTextDocument(vscode.Uri.file(path.join(session.worktree, WORKBENCH_DIR, 'TASK.md')));
       }
@@ -618,6 +631,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('agentWorkbench.startAgent', (node: WorkNode) =>
       node?.kind === 'session' ? (clockOn(node.session), guarded(() => agents.start(node.session, true))) : undefined,
     ),
+
+    // For the next start or resume in this session; a running agent keeps its model (use its own /model there).
+    vscode.commands.registerCommand('agentWorkbench.changeAgentOptions', (node?: WorkNode) => {
+      const session = sessionOf(node);
+      if (!session) {
+        return undefined;
+      }
+      return guarded(async () => {
+        const current = store.list().find((s) => s.id === session.id) ?? session;
+        const { profiles } = agentProfiles();
+        const profile = profiles.find((p) => p.id === (current.agent ?? vscode.workspace.getConfiguration('agentWorkbench').get<string>('defaultAgent', 'claude')));
+        if (!profile || !supportsOptions(profile)) {
+          void vscode.window.showInformationMessage(`Agent Workbench: ${profile?.label ?? 'this agent'} takes no model or effort (see agentWorkbench.agents).`);
+          return;
+        }
+        const picked = await pickAgentOptions(profile, { model: current.model, effort: current.effort }, current.title ?? current.id);
+        if (!picked) {
+          return;
+        }
+        store.update(session.id, { agent: profile.id, model: picked.model, effort: picked.effort });
+        tree.refresh();
+        const what = [picked.model, picked.effort].filter(Boolean).join(' · ') || "the agent's own defaults";
+        void vscode.window.showInformationMessage(`${current.title ?? current.id}: ${profile.label} uses ${what} from the next start or resume. A running agent keeps its model; use its /model to switch now.`);
+      });
+    }),
 
     vscode.commands.registerCommand('agentWorkbench.resumeAgent', (node: WorkNode) =>
       node?.kind === 'session' ? (clockOn(node.session), guarded(() => agents.resume(node.session))) : undefined,
