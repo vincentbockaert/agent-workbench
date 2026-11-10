@@ -124,7 +124,24 @@ Built in: `claude` (Claude Code) and `codex`. Add or override profiles in `agent
 
 `startNoPromptCmd` (optional) starts the agent with no prompt, used when you leave the instructions empty (see [Sessions](#sessions)); without it `startCmd` is used. The built-in `claude` and `codex` have one. A profile with the same `id` replaces the built-in entirely, so include `startNoPromptCmd` if you want it.
 
-Placeholders: `${promptFile}` (the relative path `.workbench/TASK.md`), `${sessionId}`, `${branch}`. Commands run in the session's worktree, so "continue the latest conversation here" (`claude --continue`) resumes exactly that session.
+Placeholders: `${promptFile}` (the relative path `.workbench/TASK.md`), `${sessionId}`, `${branch}`, `${options}` (the model and effort, below). Commands run in the session's worktree, so "continue the latest conversation here" (`claude --continue`) resumes exactly that session.
+
+### Model and effort
+
+Starting work asks, after the agent, **which model** and **which effort**, so a session does not inherit whatever you last set in the agent (say Opus with high effort). Enter accepts the preselected one:
+
+1. what this ticket used last with that agent,
+2. else your default in `agentWorkbench.agentDefaults`, e.g. `{ "claude": { "model": "opus", "effort": "high" } }`,
+3. else the agent's built-in default: Claude Code `sonnet` · `medium`.
+
+Each list also has **Agent's own default** (no flag: today's behaviour) and **Other…** to type a full model name such as `claude-sonnet-5-5`. The choice is stored on the session: **Open Agent**, **Resume** and **Start New Agent Conversation** use it, and **Change Model and Effort…** (session context menu, or the command palette inside a session) changes it for the next start or resume. A running agent keeps its model; switch it there with the agent's own `/model`. Sessions from before this keep resuming without flags.
+
+| Agent | Model | Effort |
+|---|---|---|
+| Claude Code | `--model` (`sonnet`, `opus`, `haiku`, `fable`, or a full name) | `--effort` (`low`, `medium`, `high`, `xhigh`, `max`) |
+| Codex | `-m` (type a model) | `-c model_reasoning_effort=…` (`minimal`, `low`, `medium`, `high`) |
+
+For your own profile, set `modelArg` / `effortArg` (with `${value}`, e.g. `"--model ${value}"`), optionally `models`, `efforts`, `defaultModel`, `defaultEffort`, and put `${options}` in its commands where the flags go: `"startCmd": "aider ${options} --message-file ${promptFile}"`. Profiles without `${options}` are not asked. Values are single words and are passed single-quoted.
 
 `agentWorkbench.defaultAgent` picks the preselected agent; with `agentWorkbench.startAgentOnCreate` off, "No agent — just the worktree" is preselected.
 
