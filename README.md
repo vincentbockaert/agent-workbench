@@ -43,7 +43,7 @@ Requirements: Git, Node.js on `PATH` (agent hooks call `bin/wb.js` with `node`),
 
 Open a parent folder (say `~/repos`) and the workbench works with every repository directly inside it, regardless of where VS Code was started:
 
-- A folder that is itself a repo counts as one repo. Otherwise its direct subfolders with a `.git` folder are the repos (one level deep). Session worktrees (`<repo>.worktrees/…`) are never mistaken for repos.
+- A folder that is itself a repo counts as one repo. Otherwise its direct subfolders with a `.git` folder are the repos (one level deep). Session worktrees (in `.worktrees/<repo>/…`, or wherever `agentWorkbench.worktreesFolder` puts them) are never mistaken for repos.
 - Each ticket source runs in **each repo** and shows up as its own group, named `<source> · <repo>` (for example `GitHub · billing`), so ticket numbers of different repos never collide. With a single repo the names stay plain.
 - "Work on this" creates the session in that ticket's repo. Ad-hoc sessions and tickets of a workspace source ask which repo.
 - Repos are looked up again when you add or remove a workspace folder and when you click **Refresh**.
@@ -151,11 +151,23 @@ Outside a workbench session `wb.js` does nothing, so global hooks are harmless.
 ## Sessions
 
 - **Which branch it starts from** is chosen, never inferred. A quick pick lists the repository's default branch first (`origin/main` as of your last fetch, then local `main`), then the branch checked out in the repository's own folder, then your other branches by last commit. A branch that another worktree has checked out, and any `wb/…` session branch, is flagged with a warning, because that worktree's uncommitted work is not part of what the new session starts from. `agentWorkbench.baseBranch` changes this: `ask` (default), `default-branch` (always the default branch, no question) or `current` (the old behaviour: the branch checked out in the repository's own folder). New session branches are created with `--no-track`, so one based on `origin/main` never tracks it.
-- **Work on this** (ticket) or **New ad-hoc session** creates `wb/<source>-<id>-<n>` in `<repo>.worktrees/<…>` next to your repository and writes `.workbench/TASK.md` from the ticket. After you pick an agent, a markdown tab opens for **your instructions**: write the context the ticket lacks, then click **Start Agent** (▶, top right). Your text goes into an `## Instructions` section of `TASK.md` and the agent starts with the usual "read TASK.md" prompt, told to follow it first. Leave the tab empty, or close it, and the agent starts in the worktree **with no prompt**, so you type the first request yourself. "No agent" skips the tab.
+- **Work on this** (ticket) or **New ad-hoc session** creates `wb/<source>-<id>-<n>` in `.worktrees/<repo>/<…>`, one hidden folder next to your repositories (see [Where worktrees go](#where-worktrees-go)), and writes `.workbench/TASK.md` from the ticket. After you pick an agent, a markdown tab opens for **your instructions**: write the context the ticket lacks, then click **Start Agent** (▶, top right). Your text goes into an `## Instructions` section of `TASK.md` and the agent starts with the usual "read TASK.md" prompt, told to follow it first. Leave the tab empty, or close it, and the agent starts in the worktree **with no prompt**, so you type the first request yourself. "No agent" skips the tab.
 - **Open Agent** focuses the agent terminal, resumes the last agent, or starts the default one. **Open Shell** opens a terminal in the worktree.
 - Expand a session to see its **changed files**; click one for a diff against the commit the session started from.
 - **Create Pull Request** types `git push … && gh pr create …` into a terminal for you to review; it never runs it for you.
 - **Finish Session** removes the worktree and keeps the branch; it refuses while there are uncommitted changes. **Delete Session** can discard them after asking.
+
+### Where worktrees go
+
+`agentWorkbench.worktreesFolder` decides where new worktrees are created. Existing sessions keep their folder, so changing it is safe at any time.
+
+| Setting | A session of `~/repos/billing` goes to |
+|---|---|
+| empty (default) | `~/repos/.worktrees/billing/<session>`: one hidden folder, however many repos |
+| `{parent}/{repo}.worktrees` | `~/repos/billing.worktrees/<session>` (0.0.4 and earlier) |
+| `~/.cache/agent-workbench/worktrees` | `~/.cache/agent-workbench/worktrees/billing/<session>` |
+
+`{parent}` is the folder that holds the repo and `{repo}` its name; a relative path starts in `{parent}`, and without `{repo}` the repo name is added as the last folder. Worktrees of 0.0.4 and earlier stay in `<repo>.worktrees/` until you finish or delete those sessions; finishing or deleting a repo's last session also removes its emptied folder (and an empty `.worktrees`).
 
 ## Manual work on a ticket
 
@@ -164,7 +176,7 @@ A ticket lists, next to its sessions, **every local branch whose name carries th
 - Matching is case-insensitive and delimited by non-alphanumerics, so `PROJ-19` never matches `proj-1938`. Only Jira-style ids (`ABC-123`) are matched by name; tickets with numeric ids (GitHub `#12`) show their sessions only.
 - Expand a branch to see its changes against the merge base with the repo's default branch (`origin/HEAD`, else `main` or `master`); click a file for the same side-by-side diff as for sessions.
 - **Checked out** (in a worktree or the main working tree): the diff includes uncommitted and untracked work, and its right side is the real file, so you can edit it right there.
-- **No checkout**: only committed changes, shown read-only. **Open in New Worktree** (inline button or context menu) checks the branch out into `<repo>.worktrees/<branch>` without starting an agent; the branch then behaves like the case above.
+- **No checkout**: only committed changes, shown read-only. **Open in New Worktree** (inline button or context menu) checks the branch out into `.worktrees/<repo>/<branch>` without starting an agent; the branch then behaves like the case above.
 - Branches and worktrees are read once per **Refresh** (and at start-up), not on every click. A branch or worktree you create outside the workbench appears after the next Refresh.
 - Parallel work is not tied to how it was started: a session, a worktree you made yourself, or a plain branch all end up under the ticket.
 

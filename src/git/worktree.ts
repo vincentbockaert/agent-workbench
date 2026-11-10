@@ -30,6 +30,25 @@ export function defaultWorktreeRoot(repo: string): string {
   return path.join(path.dirname(resolved), `${path.basename(resolved)}.worktrees`);
 }
 
+// Where the extension puts a repo's worktrees (setting agentWorkbench.worktreesFolder). Empty: one hidden
+// `.worktrees` folder next to the repos, with a subfolder per repo, so the parent folder is not cluttered.
+// Otherwise a path: `{parent}` is the folder that holds the repo, `{repo}` its name, a leading `~` your home,
+// a relative path starts in `{parent}`; without `{repo}` the repo name is added as the last folder.
+export function worktreeRootFor(repo: string, setting: string | undefined, home: string): string {
+  const resolved = path.resolve(repo);
+  const parent = path.dirname(resolved);
+  const name = path.basename(resolved);
+  let template = (setting ?? '').trim() || '{parent}/.worktrees/{repo}';
+  if (!template.includes('{repo}')) {
+    template = `${template.replace(/[\\/]+$/, '')}/{repo}`;
+  }
+  let out = template.split('{parent}').join(parent).split('{repo}').join(name);
+  if (out === '~' || out.startsWith('~/') || out.startsWith('~\\')) {
+    out = path.join(home, out.slice(1));
+  }
+  return path.resolve(parent, out);
+}
+
 export async function createWorktree(opts: CreateWorktreeOptions): Promise<Worktree> {
   const { repo, slug, baseRef } = opts;
   if (!SLUG.test(slug) || slug.includes('..')) {

@@ -563,6 +563,11 @@
           "minimum": 0,
           "description": "Time reports round the booked figure up to blocks of this many minutes (0 = no rounding). Stored data is never rounded."
         },
+        "agentWorkbench.worktreesFolder": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where session worktrees go. Empty (default): one hidden `.worktrees` folder next to your repos, with a folder per repo (`~/repos/.worktrees/<repo>/<session>`). Otherwise a path: `{parent}` is the folder that holds the repo, `{repo}` its name, `~` your home; a relative path starts in `{parent}`, and without `{repo}` the repo name is added. `{parent}/{repo}.worktrees` is the layout of 0.0.4 and earlier. Existing sessions keep their folder."
+        },
         "agentWorkbench.ticketSources": {
           "type": "array",
           "default": [],

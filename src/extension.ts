@@ -17,7 +17,7 @@ import { BaseMode, describeBase, listBaseChoices, resolveBase } from './git/base
 import { discoverRepos, RepoInfo } from './git/repos';
 import { isStale, readPrSnapshot, refreshTicketPrs } from './pr/cache';
 import { prTargets } from './pr/targets';
-import { addWorktreeForBranch } from './git/worktree';
+import { addWorktreeForBranch, worktreeRootFor } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { displayedMs, promptAdjustment } from './time/commands';
@@ -56,6 +56,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Configured sources resolved per repo / workspace; their (effective) names key snapshots and tickets.
   const effectiveSources = () => expandSources(ticketSources(), repos, commandCwd());
   const sessionsHere = () => sessionsInRepos(store.list(), repos);
+  // Read per use, so a changed setting applies to the next session; existing sessions keep their folder.
+  const worktreeRootOf = (repo: string): string =>
+    worktreeRootFor(repo, vscode.workspace.getConfiguration('agentWorkbench').get<string>('worktreesFolder', ''), os.homedir());
   // Looks again for repos (a folder was added, or a repo was cloned into the parent folder).
   const rediscover = async (): Promise<void> => {
     repos = await discoverRepos(workspacePaths());
@@ -299,7 +302,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const repo = { root: chosen.root, branch: baseRef };
       // Show the agent choice with the branch and folder it will create, before creating anything.
-      const predicted = await nextSessionId(repo.root, sessionSlugBase(opts.ticket, opts.adhoc?.title), store);
+      const worktreeRoot = worktreeRootOf(repo.root);
+      const predicted = await nextSessionId(repo.root, sessionSlugBase(opts.ticket, opts.adhoc?.title), store, worktreeRoot);
       const lastUsed = opts.ticket
         ? store.list().filter((s) => s.ticket?.source === opts.ticket!.source && s.ticket.id === opts.ticket!.id && s.agent).pop()?.agent
         : undefined;
@@ -330,7 +334,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return; // an instructions tab for another session is still open
         }
       }
-      const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, instructions, ...opts });
+      const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, instructions, worktreeRoot, ...opts });
       tracker.sessionStarted(session);
       clockOn(session);
       advance(session, 'session-started');
@@ -580,7 +584,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const { repo, branch } = node.branch;
       return guarded(async () => {
-        const dir = await addWorktreeForBranch(repo.root, branch);
+        const dir = await addWorktreeForBranch(repo.root, branch, worktreeRootOf(repo.root));
         workIndex.invalidate(repo.root);
         await workIndex.ensure();
         tree.refresh();

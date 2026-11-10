@@ -92,6 +92,25 @@ export async function deleteSession(store: SessionStore, session: Session, opts:
     await git(session.repo, ['worktree', 'prune']);
   }
   store.remove(session.id);
+  removeIfEmpty(path.dirname(session.worktree));
+}
+
+// After the last worktree of a repo goes, its folder (`<repo>.worktrees` or `.worktrees/<repo>`) goes too,
+// and so does a `.worktrees` folder left empty. Never removes anything that still has files in it.
+function removeIfEmpty(dir: string): void {
+  for (let d = dir, i = 0; i < 2; d = path.dirname(d), i++) {
+    try {
+      if (fs.readdirSync(d).length > 0) {
+        return;
+      }
+      fs.rmdirSync(d);
+    } catch {
+      return;
+    }
+    if (i === 0 && path.basename(path.dirname(d)) !== '.worktrees') {
+      return;
+    }
+  }
 }
 
 // info/exclude is shared by all worktrees of a repo, so this also covers the main working tree.
