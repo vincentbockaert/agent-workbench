@@ -19,6 +19,9 @@ export interface Session {
   ticket?: SessionTicket; // undefined = ad-hoc session
   title?: string; // ad-hoc sessions only
   agent?: string; // id of the agent profile last started here; Resume uses it
+  // Model and effort picked for that agent; undefined = no flag (the agent's own default). Reused by Resume.
+  model?: string;
+  effort?: string;
 }
 
 function real(p: string): string {
