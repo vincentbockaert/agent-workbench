@@ -224,6 +224,24 @@ describe('session cleanup', function () {
       assert.equal(c.suggested, false);
     });
 
+    it('suggests a clean session of a ticket that was marked Done, even if nothing is merged', async () => {
+      const s = { ...(await newSession('d-8')), ticket: { source: 'Jira', id: 'P-1', title: 't' } };
+      const [open] = await removalCandidates([s], [], now(), 14, new Set());
+      assert.equal(open?.suggested ?? false, false);
+      const [done] = await removalCandidates([s], [], now(), 14, new Set(['Jira:P-1']));
+      assert.ok(done.reasons.includes('ticket-done'));
+      assert.equal(done.suggested, true);
+      assert.equal(describeCandidate(done).hint, 'ticket done: can be removed');
+    });
+
+    it('still blocks a dirty session of a Done ticket', async () => {
+      const s = { ...(await newSession('d-9')), ticket: { source: 'Jira', id: 'P-1', title: 't' } };
+      fs.writeFileSync(path.join(s.worktree, 'edit.txt'), 'changed\n');
+      const [done] = await removalCandidates([s], [], now(), 14, new Set(['Jira:P-1']));
+      assert.equal(done.suggested, false);
+      assert.equal(done.blockers.length, 1);
+    });
+
     it('lists a session idle for 14+ days, without suggesting it', async () => {
       const s = await newSession('d-7');
       const c = await one(s, [], new Date(Date.now() + 15 * DAY));

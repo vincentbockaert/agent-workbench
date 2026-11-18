@@ -46,6 +46,11 @@ export class WorkflowStore {
     }
   }
 
+  // Keys of the tickets marked Done.
+  doneKeys(): Set<string> {
+    return new Set(Object.keys(this.statuses).filter((k) => this.statuses[k] === 'done'));
+  }
+
   get(key: string): WorkStatus {
     return this.statuses[key] ?? 'todo';
   }

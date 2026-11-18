@@ -28,7 +28,7 @@ import { clockMark, shortLabel } from './time/clockbar';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
-import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore } from './tickets/workflow';
+import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore, WorkStatus } from './tickets/workflow';
 import { openBranchChange, openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { askInstructions, startWithInstructions, START_AGENT_COMMAND } from './ui/instructions';
 import { ClockStatus, TIMER_MENU_COMMAND } from './ui/clockstatus';
@@ -182,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { hints, idleDays } = cleanupSettings();
       const next = new Map<string, string>();
       if (hints) {
-        for (const c of await removalCandidates(sessionsHere(), cachedPrs(), new Date(), idleDays)) {
+        for (const c of await removalCandidates(sessionsHere(), cachedPrs(), new Date(), idleDays, workflow.doneKeys())) {
           const hint = describeCandidate(c).hint;
           if (hint) {
             next.set(c.session.id, hint);
@@ -247,8 +247,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onMessage: (key, msg, session) => {
       switch (msg.command) {
         case 'setStatus':
-          workflow.set(key, msg.status);
-          return tree.refresh();
+          return void setWorkStatus(key, msg.status);
         case 'newSession': {
           const t = snapshotTicket(key);
           return t ? void newSession({ ticket: t }) : undefined;
@@ -466,8 +465,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const answer = await vscode.window.showInformationMessage(`That was the last session of ${ended.ticket.id}. Mark it Done in the workbench?`, 'Mark Done', 'Keep');
     if (answer === 'Mark Done') {
-      workflow.set(key, 'done');
+      await setWorkStatus(key, 'done');
     }
+  }
+
+  // Sets the workbench status. Moving a ticket to Done means its sessions are no longer needed: the clean ones
+  // (no uncommitted work, no agent working or waiting) have their worktree removed, branches kept. The rest stay.
+  async function setWorkStatus(key: string, status: WorkStatus): Promise<void> {
+    const before = workflow.get(key);
+    workflow.set(key, status);
+    tree.refresh();
+    if (status !== 'done' || before === 'done') {
+      return;
+    }
+    const mine = sessionsHere().filter((s) => ticketKey(s) === key && s.ticket);
+    const idle = mine.filter((s) => {
+      const state = signals.get(s.id)?.state;
+      return state !== 'working' && state !== 'needs-input';
+    });
+    const removable = (await removalCandidates(idle, [], new Date(), cleanupSettings().idleDays, new Set([key]))).filter((c) => c.blockers.length === 0);
+    for (const { session: s } of removable) {
+      try {
+        await deleteSession(store, s);
+      } catch {
+        continue;
+      }
+      tracker.sessionEnded(s);
+    }
+    if (removable.length && !hasOtherTicketSessions(store.list(), mine[0])) {
+      tracker.clock.stop(key);
+    }
+    if (removable.length) {
+      changed();
+      void refreshCleanupHints(true);
+    }
+    const left = mine.length - removable.length;
+    void vscode.window.setStatusBarMessage(
+      removable.length || left ? `${key}: Done. Removed ${removable.length} worktree(s), branches kept${left ? `; ${left} session(s) kept (uncommitted changes or agent active)` : ''}.` : `${key}: Done.`,
+      8000,
+    );
   }
 
   function setHideDone(hide: boolean): void {
@@ -535,8 +571,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { title: `Workbench status of ${node.group.ticket.id}`, placeHolder: 'Only changes the workbench; the tracker is never touched' },
       );
       if (picked) {
-        workflow.set(key, picked.status);
-        tree.refresh();
+        await setWorkStatus(key, picked.status);
       }
     }),
 
@@ -774,7 +809,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Lists sessions that can go (merged, closed, pushed, idle ...) and removes the ones you tick. Branches are kept;
     // sessions with uncommitted changes are never offered.
     vscode.commands.registerCommand('agentWorkbench.cleanSessions', async () => {
-      const all = await removalCandidates(sessionsHere(), cachedPrs(), new Date(), cleanupSettings().idleDays);
+      const all = await removalCandidates(sessionsHere(), cachedPrs(), new Date(), cleanupSettings().idleDays, workflow.doneKeys());
       const removable = all.filter((c) => c.blockers.length === 0);
       const blocked = all.length - removable.length;
       if (!removable.length) {

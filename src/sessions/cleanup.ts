@@ -4,12 +4,14 @@
 import * as fs from 'fs';
 import { git } from '../git/git';
 import type { PullRequest } from '../pr/model';
+import { ticketKey } from '../time/rules';
 import type { Session } from './model';
 
 export type PrReason = 'merged' | 'closed' | 'open' | 'none';
 
 export type CleanupReason =
   | 'pr-merged' // the PR was merged (also covers squash and rebase merges)
+  | 'ticket-done' // its ticket was marked Done in the workbench: the session is no longer needed
   | 'pr-closed' // the PR was closed without merging
   | 'on-base' // the branch's commits are already in the base branch (plain merge)
   | 'pushed' // all commits are on the remote branch
@@ -23,6 +25,9 @@ export interface CleanupCandidate {
   blockers: string[]; // non-empty: removal is not allowed
   suggested: boolean; // clean, and merged, closed or already on the base
 }
+
+// Reasons that make a clean session a suggested removal; the others are only listed.
+const SUGGESTING: CleanupReason[] = ['ticket-done', 'pr-merged', 'pr-closed', 'on-base'];
 
 export const DEFAULT_IDLE_DAYS = 14;
 const DAY_MS = 86_400_000;
@@ -99,7 +104,7 @@ async function tipTime(repo: string, branch: string): Promise<number | undefined
   return t ? Number(t) * 1000 : undefined;
 }
 
-async function classify(session: Session, prs: PullRequest[], now: Date, idleDays: number): Promise<CleanupCandidate> {
+async function classify(session: Session, prs: PullRequest[], now: Date, idleDays: number, doneTickets: ReadonlySet<string>): Promise<CleanupCandidate> {
   const { repo, branch, baseRef } = session;
   const [onBase, pushed, ahead, tip, block] = await Promise.all([
     isOnBase(repo, branch, baseRef),
@@ -112,6 +117,9 @@ async function classify(session: Session, prs: PullRequest[], now: Date, idleDay
   const created = Date.parse(session.createdAt);
   const reasons: CleanupReason[] = [];
 
+  if (session.ticket && doneTickets.has(ticketKey(session))) {
+    reasons.push('ticket-done');
+  }
   if (pr === 'merged') {
     reasons.push('pr-merged');
   }
@@ -133,17 +141,18 @@ async function classify(session: Session, prs: PullRequest[], now: Date, idleDay
     reasons.push('idle');
   }
 
-  const suggested = block.length === 0 && reasons.some((r) => r === 'pr-merged' || r === 'pr-closed' || r === 'on-base');
+  const suggested = block.length === 0 && reasons.some((r) => SUGGESTING.includes(r));
   return { session, reasons, blockers: block, suggested };
 }
 
 // Every session with at least one reason to be cleaned up (or a blocker explaining why not), in input order.
-export async function removalCandidates(sessions: Session[], prs: PullRequest[], now: Date = new Date(), idleDays = DEFAULT_IDLE_DAYS): Promise<CleanupCandidate[]> {
-  const all = await Promise.all(sessions.map((s) => classify(s, prs, now, idleDays)));
+export async function removalCandidates(sessions: Session[], prs: PullRequest[], now: Date = new Date(), idleDays = DEFAULT_IDLE_DAYS, doneTickets: ReadonlySet<string> = new Set()): Promise<CleanupCandidate[]> {
+  const all = await Promise.all(sessions.map((s) => classify(s, prs, now, idleDays, doneTickets)));
   return all.filter((c) => c.reasons.length > 0);
 }
 
 const REASON_TEXT: Record<CleanupReason, string> = {
+  'ticket-done': 'ticket done',
   'pr-merged': 'PR merged',
   'pr-closed': 'PR closed',
   'on-base': 'merged',
@@ -160,7 +169,7 @@ export function describeCandidate(c: CleanupCandidate): { text: string; hint?: s
   if (!c.suggested) {
     return { text };
   }
-  const first = c.reasons.find((r) => r === 'pr-merged' || r === 'pr-closed' || r === 'on-base')!;
+  const first = c.reasons.find((r) => SUGGESTING.includes(r))!;
   return { text, hint: `${REASON_TEXT[first]}: can be removed` };
 }
 
