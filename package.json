@@ -112,6 +112,12 @@
         "icon": "$(check-all)"
       },
       {
+        "command": "agentWorkbench.cleanSessions",
+        "title": "Clean Up Sessions…",
+        "category": "Agent Workbench",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "agentWorkbench.deleteSession",
         "title": "Delete Session",
         "category": "Agent Workbench",
@@ -574,6 +580,17 @@
           "default": 5,
           "minimum": 1,
           "description": "Refresh a ticket's pull requests when its tab opens if the cached list is older than this many minutes. The Refresh button always refreshes."
+        },
+        "agentWorkbench.showCleanupHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a quiet note on a session row when its pull request was merged or closed (or its branch is already merged) and the worktree can be removed. Never opens a popup; Clean Up Sessions lists them."
+        },
+        "agentWorkbench.idleDays": {
+          "type": "number",
+          "default": 14,
+          "minimum": 1,
+          "description": "Clean Up Sessions lists a session as idle after this many days without commits. Idle sessions are listed, not ticked."
         },
         "agentWorkbench.startAgentOnCreate": {
           "type": "boolean",

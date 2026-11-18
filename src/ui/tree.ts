@@ -45,6 +45,8 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
     private readonly work: WorkIndex,
     private readonly clock: () => ClockState = () => ({ onClock: [], active: undefined }),
     private readonly live: () => Record<string, Totals> = () => ({}),
+    // A quiet note on a session row, e.g. "PR merged: can be removed".
+    private readonly hint: (sessionId: string) => string | undefined = () => undefined,
   ) {}
 
   // Live totals are computed at most once per refresh, and only when something is on the clock.
@@ -214,7 +216,7 @@ export class WorkTreeProvider implements vscode.TreeDataProvider<WorkNode> {
         const status = this.status(s.id);
         const state = status && `${STATE_SHORT[status.state]} · ${describeSince(status, new Date())}`;
         // Ad-hoc sessions sit outside any repo group, so name their repo; ticket sessions show it via their source.
-        item.description = [mark?.text, s.title ? s.id : undefined, s.ticket ? undefined : path.basename(s.repo), s.agent, state, today].filter(Boolean).join(' · ');
+        item.description = [mark?.text, s.title ? s.id : undefined, s.ticket ? undefined : path.basename(s.repo), s.agent, state, today, this.hint(s.id)].filter(Boolean).join(' · ');
         item.tooltip = [
           status && `${STATE_LABELS[status.state]}${status.message ? `: ${status.message}` : ''}`,
           mark?.tooltip,

@@ -1,11 +1,12 @@
 import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { blockers, isOnBase, isPushed, prReason, removalCandidates } from '../../src/sessions/cleanup';
+import { blockers, describeCandidate, isOnBase, isPushed, prReason, removalCandidates } from '../../src/sessions/cleanup';
 import { git } from '../../src/git/git';
 import { createWorktree } from '../../src/git/worktree';
 import type { PullRequest } from '../../src/pr/model';
 import type { Session } from '../../src/sessions/model';
+import type { CleanupCandidate, CleanupReason } from '../../src/sessions/cleanup';
 import { commitAll, makeRepo } from './helpers/repo';
 
 const DAY = 86_400_000;
@@ -195,5 +196,28 @@ describe('session cleanup', function () {
       assert.ok(c.reasons.includes('idle'));
       assert.equal(c.suggested, false);
     });
+  });
+});
+
+describe('describeCandidate', () => {
+  const cand = (reasons: CleanupReason[], blockers: string[] = [], suggested = false): CleanupCandidate => ({ session: session(), reasons, blockers, suggested });
+
+  it('words the strongest reason, with a hint only for suggested sessions', () => {
+    assert.deepEqual(describeCandidate(cand(['pr-merged', 'pushed'], [], true)), { text: 'PR merged, pushed', hint: 'PR merged: can be removed' });
+    assert.equal(describeCandidate(cand(['pr-closed'], [], true)).hint, 'PR closed: can be removed');
+    assert.equal(describeCandidate(cand(['on-base'], [], true)).hint, 'merged: can be removed');
+  });
+  it('gives no hint for reasons that are only listed on demand', () => {
+    for (const r of ['pushed', 'idle', 'empty', 'local-only'] as const) {
+      assert.equal(describeCandidate(cand([r])).hint, undefined, r);
+    }
+    assert.equal(describeCandidate(cand(['pushed', 'idle'])).text, 'pushed, idle');
+    assert.equal(describeCandidate(cand(['local-only'])).text, 'commits only on this machine');
+  });
+  it('says why a blocked session stays, and gives no hint', () => {
+    const d = describeCandidate(cand(['pr-merged'], ['uncommitted changes: a.txt']));
+    assert.equal(d.hint, undefined);
+    assert.match(d.text, /PR merged/);
+    assert.match(d.text, /uncommitted changes/);
   });
 });

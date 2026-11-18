@@ -9,6 +9,7 @@ import { WORK_VIEW_ID } from './constants';
 import { HubTicket } from './hub/model';
 import { TicketHubs } from './hub/panel';
 import { TimeReportPanel } from './report/panel';
+import { describeCandidate, removalCandidates, DEFAULT_IDLE_DAYS } from './sessions/cleanup';
 import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionsInRepos, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
@@ -82,7 +83,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // Branches and worktrees of every repo, read once per refresh so tickets can list their manual work.
   const workIndex = new WorkIndex(() => repos);
-  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex, () => tracker.clock.state(), () => tracker.liveToday());
+  const cleanupHints = new Map<string, string>(); // session id -> note on its row; filled by refreshCleanupHints
+  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex, () => tracker.clock.state(), () => tracker.liveToday(), (id) => cleanupHints.get(id));
   void workIndex.ensure().then(() => tree.refresh());
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
@@ -131,6 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changed = (): void => {
     signals.sync();
     tree.refresh();
+    void refreshCleanupHints();
   };
   const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed, (t, s) => {
     tracker.registerTerminal(t, s);
@@ -159,6 +162,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const prDir = path.join(context.globalStorageUri.fsPath, 'prs');
   const prRefreshing = new Set<string>();
+
+  // --- Cleanup of finished sessions. Quiet by design: a note on the row and a command, never a popup. ---
+  const cleanupSettings = () => {
+    const c = vscode.workspace.getConfiguration('agentWorkbench');
+    return { hints: c.get<boolean>('showCleanupHints', true), idleDays: c.get<number>('idleDays', DEFAULT_IDLE_DAYS) };
+  };
+  // Pull requests from the cache only (no network), for the sessions that belong to a ticket.
+  const cachedPrs = () => [...new Set(sessionsHere().map((s) => ticketKey(s)))].flatMap((key) => readPrSnapshot(prDir, key)?.prs ?? []);
+  let hintsRunning = false;
+  let hintsAt = 0;
+  async function refreshCleanupHints(force = false): Promise<void> {
+    if (hintsRunning || (!force && Date.now() - hintsAt < 60_000)) {
+      return;
+    }
+    hintsRunning = true;
+    try {
+      const { hints, idleDays } = cleanupSettings();
+      const next = new Map<string, string>();
+      if (hints) {
+        for (const c of await removalCandidates(sessionsHere(), cachedPrs(), new Date(), idleDays)) {
+          const hint = describeCandidate(c).hint;
+          if (hint) {
+            next.set(c.session.id, hint);
+          }
+        }
+      }
+      const same = next.size === cleanupHints.size && [...next].every(([k, v]) => cleanupHints.get(k) === v);
+      if (!same) {
+        cleanupHints.clear();
+        next.forEach((v, k) => cleanupHints.set(k, v));
+        tree.refresh();
+      }
+    } catch {
+      // hints are a convenience: never bother the user with a failure
+    } finally {
+      hintsAt = Date.now();
+      hintsRunning = false;
+    }
+  }
+  void refreshCleanupHints(true);
   const prSettings = () => {
     const c = vscode.workspace.getConfiguration('agentWorkbench');
     return { enabled: c.get<boolean>('pullRequests.enabled', true), maxAgeMs: c.get<number>('pullRequests.refreshMinutes', 5) * 60_000 };
@@ -177,6 +220,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showErrorMessage(`Agent Workbench: could not refresh pull requests: ${(e as Error).message}`);
     } finally {
       prRefreshing.delete(key);
+      void refreshCleanupHints(true);
       hubs.refreshAll();
     }
   }
@@ -724,6 +768,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage(`Finished ${s.id}: worktree removed, branch ${s.branch} kept.`);
       await offerDone(s);
       changed();
+    }),
+
+    // Lists sessions that can go (merged, closed, pushed, idle ...) and removes the ones you tick. Branches are kept;
+    // sessions with uncommitted changes are never offered.
+    vscode.commands.registerCommand('agentWorkbench.cleanSessions', async () => {
+      const all = await removalCandidates(sessionsHere(), cachedPrs(), new Date(), cleanupSettings().idleDays);
+      const removable = all.filter((c) => c.blockers.length === 0);
+      const blocked = all.length - removable.length;
+      if (!removable.length) {
+        void vscode.window.showInformationMessage(blocked ? `Nothing to clean up: ${blocked} session(s) have uncommitted changes.` : 'Nothing to clean up.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        removable.map((c) => ({ label: c.session.title ?? c.session.id, description: c.session.id, detail: describeCandidate(c).text, picked: c.suggested, c })),
+        {
+          canPickMany: true,
+          title: `Clean up sessions${blocked ? ` (${blocked} with uncommitted changes not listed)` : ''}`,
+          placeHolder: 'Worktree folders are removed, branches are kept. Merged and closed ones are ticked.',
+        },
+      );
+      if (!picked?.length) {
+        return;
+      }
+      if (picked.some((p) => p.c.reasons.includes('local-only'))) {
+        const ok = await vscode.window.showWarningMessage(
+          'Some of these sessions have commits that exist only on this machine. The branches are kept, but nothing has been pushed.',
+          { modal: true },
+          'Remove Anyway',
+        );
+        if (ok !== 'Remove Anyway') {
+          return;
+        }
+      }
+      const failed: string[] = [];
+      for (const { c } of picked) {
+        const s = c.session;
+        try {
+          await deleteSession(store, s);
+        } catch {
+          failed.push(s.id);
+          continue;
+        }
+        tracker.sessionEnded(s);
+        if (!hasOtherTicketSessions(store.list(), s)) {
+          tracker.clock.stop(ticketKey(s));
+        }
+      }
+      changed();
+      void refreshCleanupHints(true);
+      const done = picked.length - failed.length;
+      void vscode.window.showInformationMessage(`Removed ${done} worktree(s), branches kept.${failed.length ? ` Could not remove: ${failed.join(', ')}.` : ''}`);
     }),
 
     vscode.commands.registerCommand(START_AGENT_COMMAND, () => startWithInstructions()),

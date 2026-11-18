@@ -142,3 +142,24 @@ export async function removalCandidates(sessions: Session[], prs: PullRequest[],
   const all = await Promise.all(sessions.map((s) => classify(s, prs, now, idleDays)));
   return all.filter((c) => c.reasons.length > 0);
 }
+
+const REASON_TEXT: Record<CleanupReason, string> = {
+  'pr-merged': 'PR merged',
+  'pr-closed': 'PR closed',
+  'on-base': 'merged',
+  pushed: 'pushed',
+  'local-only': 'commits only on this machine',
+  empty: 'no commits',
+  idle: 'idle',
+};
+
+// Text for a list entry, and a short hint for the session row. The hint exists only for sessions that are suggested
+// (clean, and merged or closed); everything else is shown only when the user asks for the cleanup list.
+export function describeCandidate(c: CleanupCandidate): { text: string; hint?: string } {
+  const text = [c.reasons.map((r) => REASON_TEXT[r]).join(', '), ...c.blockers].filter(Boolean).join(' · ');
+  if (!c.suggested) {
+    return { text };
+  }
+  const first = c.reasons.find((r) => r === 'pr-merged' || r === 'pr-closed' || r === 'on-base')!;
+  return { text, hint: `${REASON_TEXT[first]}: can be removed` };
+}
