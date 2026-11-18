@@ -9,13 +9,14 @@ import { WORK_VIEW_ID } from './constants';
 import { HubTicket } from './hub/model';
 import { TicketHubs } from './hub/panel';
 import { TimeReportPanel } from './report/panel';
-import { describeCandidate, removalCandidates, DEFAULT_IDLE_DAYS } from './sessions/cleanup';
+import { deleteBranchIfMerged, describeCandidate, removalCandidates, DEFAULT_IDLE_DAYS } from './sessions/cleanup';
 import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionsInRepos, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshAll } from './tickets/snapshot';
 import { candidateRepos, expandSources } from './tickets/expand';
 import { BaseMode, describeBase, listBaseChoices, resolveBase } from './git/basebranch';
+import { git } from './git/git';
 import { discoverRepos, RepoInfo } from './git/repos';
 import { isStale, readPrSnapshot, refreshTicketPrs } from './pr/cache';
 import { prTargets } from './pr/targets';
@@ -166,7 +167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // --- Cleanup of finished sessions. Quiet by design: a note on the row and a command, never a popup. ---
   const cleanupSettings = () => {
     const c = vscode.workspace.getConfiguration('agentWorkbench');
-    return { hints: c.get<boolean>('showCleanupHints', true), idleDays: c.get<number>('idleDays', DEFAULT_IDLE_DAYS) };
+    return { hints: c.get<boolean>('showCleanupHints', true), idleDays: c.get<number>('idleDays', DEFAULT_IDLE_DAYS), deleteBranches: c.get<boolean>('cleanup.deleteMergedBranches', false) };
   };
   // Pull requests from the cache only (no network), for the sessions that belong to a ticket.
   const cachedPrs = () => [...new Set(sessionsHere().map((s) => ticketKey(s)))].flatMap((key) => readPrSnapshot(prDir, key)?.prs ?? []);
@@ -802,6 +803,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
       const failed: string[] = [];
+      let branchesDeleted = 0;
       for (const { c } of picked) {
         const s = c.session;
         try {
@@ -814,11 +816,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!hasOtherTicketSessions(store.list(), s)) {
           tracker.clock.stop(ticketKey(s));
         }
+        if (cleanupSettings().deleteBranches && (await deleteBranchIfMerged(s, c.reasons))) {
+          branchesDeleted++;
+        }
+      }
+      for (const repo of new Set(picked.map((p) => p.c.session.repo))) {
+        await git(repo, ['worktree', 'prune']).catch(() => undefined); // registrations whose folder is already gone
       }
       changed();
       void refreshCleanupHints(true);
       const done = picked.length - failed.length;
-      void vscode.window.showInformationMessage(`Removed ${done} worktree(s), branches kept.${failed.length ? ` Could not remove: ${failed.join(', ')}.` : ''}`);
+      void vscode.window.showInformationMessage(
+        `Removed ${done} worktree(s)${branchesDeleted ? `, deleted ${branchesDeleted} merged branch(es), other branches kept` : ', branches kept'}.${failed.length ? ` Could not remove: ${failed.join(', ')}.` : ''}`,
+      );
     }),
 
     vscode.commands.registerCommand(START_AGENT_COMMAND, () => startWithInstructions()),

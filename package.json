@@ -586,6 +586,11 @@
           "default": true,
           "description": "Show a quiet note on a session row when its pull request was merged or closed (or its branch is already merged) and the worktree can be removed. Never opens a popup; Clean Up Sessions lists them."
         },
+        "agentWorkbench.cleanup.deleteMergedBranches": {
+          "type": "boolean",
+          "default": false,
+          "description": "When Clean Up Sessions removes a session whose pull request was merged (or whose branch is already merged), also delete its local branch. Branches of closed, pushed or idle sessions are always kept."
+        },
         "agentWorkbench.idleDays": {
           "type": "number",
           "default": 14,

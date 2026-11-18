@@ -163,3 +163,13 @@ export function describeCandidate(c: CleanupCandidate): { text: string; hint?: s
   const first = c.reasons.find((r) => r === 'pr-merged' || r === 'pr-closed' || r === 'on-base')!;
   return { text, hint: `${REASON_TEXT[first]}: can be removed` };
 }
+
+// Deletes the session's local branch, only when its work is known to be in the base (merged PR or plain merge).
+// A closed or merely pushed branch is kept. Uses -D because a squash-merged branch is "unmerged" to git; a branch that is
+// still checked out is refused by git itself. Returns whether the branch was deleted; never throws.
+export async function deleteBranchIfMerged(session: Session, reasons: CleanupReason[]): Promise<boolean> {
+  if (!reasons.includes('pr-merged') && !reasons.includes('on-base')) {
+    return false;
+  }
+  return ok(session.repo, ['branch', '-D', session.branch]);
+}

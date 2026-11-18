@@ -1,7 +1,7 @@
 import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { blockers, describeCandidate, isOnBase, isPushed, prReason, removalCandidates } from '../../src/sessions/cleanup';
+import { blockers, deleteBranchIfMerged, describeCandidate, isOnBase, isPushed, prReason, removalCandidates } from '../../src/sessions/cleanup';
 import { git } from '../../src/git/git';
 import { createWorktree } from '../../src/git/worktree';
 import type { PullRequest } from '../../src/pr/model';
@@ -127,6 +127,40 @@ describe('session cleanup', function () {
     });
     it('is empty when the worktree folder is already gone', async () => {
       assert.deepEqual(await blockers(session({ worktree: path.join(parent, 'missing') })), []);
+    });
+  });
+
+  describe('deleteBranchIfMerged', () => {
+    const branches = async () => (await git(repo, ['branch', '--list', 'wb/*', '--format=%(refname:short)'])).split('\n').filter(Boolean);
+
+    it('deletes the local branch once the worktree is gone and the work is merged', async () => {
+      const s = await newSession('e-1');
+      await git(repo, ['merge', '-q', '--no-ff', '-m', 'merge', s.branch]);
+      await git(repo, ['worktree', 'remove', s.worktree]);
+      assert.equal(await deleteBranchIfMerged(s, ['on-base']), true);
+      assert.deepEqual(await branches(), []);
+    });
+
+    it('also deletes after a squash merge (PR merged), where git itself would call the branch unmerged', async () => {
+      const s = await newSession('e-2');
+      await git(repo, ['worktree', 'remove', s.worktree]);
+      assert.equal(await deleteBranchIfMerged(s, ['pr-merged']), true);
+      assert.deepEqual(await branches(), []);
+    });
+
+    it('keeps the branch for any other reason, so unmerged commits stay reachable', async () => {
+      const s = await newSession('e-3');
+      await git(repo, ['worktree', 'remove', s.worktree]);
+      for (const r of ['pr-closed', 'pushed', 'local-only', 'idle', 'empty'] as const) {
+        assert.equal(await deleteBranchIfMerged(s, [r]), false, r);
+      }
+      assert.deepEqual(await branches(), ['wb/e-3']);
+    });
+
+    it('does not throw when the branch is still checked out', async () => {
+      const s = await newSession('e-4');
+      assert.equal(await deleteBranchIfMerged(s, ['pr-merged']), false);
+      assert.deepEqual(await branches(), ['wb/e-4']);
     });
   });
 
