@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { CLAUDE_SETTINGS_FILE } from '../agents/status';
+import { ANTIGRAVITY_HOOKS_FILE, CLAUDE_SETTINGS_FILE } from '../agents/status';
 import { git } from '../git/git';
 import { createWorktree, defaultWorktreeRoot, removeWorktree } from '../git/worktree';
 import { Ticket } from '../tickets/source';
@@ -47,7 +47,7 @@ export async function startSession(opts: StartSessionOptions): Promise<Session> 
       throw e;
     }
 
-    await excludeFromGit(wt.path, [`/${WORKBENCH_DIR}/`, `/${CLAUDE_SETTINGS_FILE}`]);
+    await excludeFromGit(wt.path, [`/${WORKBENCH_DIR}/`, `/${CLAUDE_SETTINGS_FILE}`, `/${ANTIGRAVITY_HOOKS_FILE}`]);
     fs.mkdirSync(path.join(wt.path, WORKBENCH_DIR), { recursive: true });
     const task = ticket ? renderTicketTask(ticket, opts.instructions) : renderAdhocTask(adhoc!.title, adhoc!.description, opts.instructions);
     fs.writeFileSync(path.join(wt.path, WORKBENCH_DIR, 'TASK.md'), task);

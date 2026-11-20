@@ -15,6 +15,9 @@ export interface AgentStatus {
 export const STATUS_FILE = '.workbench/status.json';
 // Claude reads this per-folder file automatically; a fresh worktree never has one (it is untracked).
 export const CLAUDE_SETTINGS_FILE = '.claude/settings.local.json';
+// Antigravity reads workspace hooks from .agents/hooks.json (or global ~/.gemini/config/hooks.json).
+export const ANTIGRAVITY_HOOKS_FILE = '.agents/hooks.json';
+export const ANTIGRAVITY_HOOK_GROUP = 'agent-workbench';
 
 const STATES: AgentState[] = ['working', 'needs-input', 'done', 'exited'];
 
@@ -62,6 +65,7 @@ export function writeStatusFile(file: string, status: AgentStatus): void {
 }
 
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Notification', 'Stop', 'SessionEnd'];
+const ANTIGRAVITY_EVENTS = ['SessionStart', 'PreToolUse', 'PostToolUse', 'PreInvocation', 'PostInvocation', 'Stop'];
 
 // Claude Code settings (loaded with --settings) whose hooks call wb.js.
 // Forward slashes and quotes keep the path valid in both bash and Windows shells.
@@ -72,6 +76,16 @@ export function claudeHookSettings(wbScript: string): object {
     hooks[event] = [{ hooks: [{ type: 'command', command }] }];
   }
   return { hooks };
+}
+
+// Antigravity hooks.json group whose lifecycle events call wb.js.
+export function antigravityHookSettings(wbScript: string): Record<string, Record<string, unknown>> {
+  const command = `node "${wbScript.replace(/\\/g, '/')}" hook antigravity`;
+  const group: Record<string, unknown> = {};
+  for (const event of ANTIGRAVITY_EVENTS) {
+    group[event] = [{ hooks: [{ type: 'command', command }] }];
+  }
+  return { [ANTIGRAVITY_HOOK_GROUP]: group };
 }
 
 // What a ticket row signals from its sessions: needs input beats your move (turn done); anything else shows nothing.

@@ -1,10 +1,22 @@
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Session } from '../sessions/model';
 import { SessionStore } from '../sessions/store';
 import { AgentMode, AgentProfile, agentCommand, mergeProfiles } from './profiles';
-import { AgentState, CLAUDE_SETTINGS_FILE, claudeHookSettings, readStatusFile, STATUS_FILE, writeStatusFile } from './status';
+import {
+  AgentState,
+  ANTIGRAVITY_HOOK_GROUP,
+  ANTIGRAVITY_HOOKS_FILE,
+  antigravityHookSettings,
+  CLAUDE_SETTINGS_FILE,
+  claudeHookSettings,
+  readStatusFile,
+  STATUS_FILE,
+  writeStatusFile,
+} from './status';
 
 function config(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration('agentWorkbench');
@@ -86,8 +98,12 @@ export class AgentTerminals implements vscode.Disposable {
   }
 
   private run(session: Session, profile: AgentProfile, mode: AgentMode): void {
-    const cmd = agentCommand(profile, mode, { sessionId: session.id, branch: session.branch });
+    const agentSessionId = mode === 'resume' ? readStatusFile(statusFile(session))?.agentSessionId : undefined;
+    const cmd = agentCommand(profile, mode, { sessionId: session.id, branch: session.branch, agentSessionId });
     this.installClaudeHooks(session);
+    if (profile.id === 'antigravity') {
+      this.installAntigravityHooks(session);
+    }
     const terminal = vscode.window.createTerminal({
       name: `${profile.label}: ${session.id}`,
       cwd: session.worktree,
@@ -119,6 +135,27 @@ export class AgentTerminals implements vscode.Disposable {
     settings.hooks = { ...(settings.hooks as Record<string, unknown> | undefined), ...ours.hooks };
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(settings, null, 2));
+  }
+
+  // Installs Antigravity hooks per-worktree (consistent with Claude Code). If the repo already tracks
+  // .agents/hooks.json in git, falls back to ~/.gemini/config/hooks.json so git status stays clean.
+  private installAntigravityHooks(session: Session): void {
+    const localFile = path.join(session.worktree, ANTIGRAVITY_HOOKS_FILE);
+    const target = isGitTracked(session.worktree, ANTIGRAVITY_HOOKS_FILE)
+      ? path.join(os.homedir(), '.gemini', 'config', 'hooks.json')
+      : localFile;
+    let hooks: Record<string, unknown> = {};
+    if (fs.existsSync(target)) {
+      try {
+        hooks = JSON.parse(fs.readFileSync(target, 'utf8'));
+      } catch {
+        throw new Error(`${target} is not valid JSON; fix or delete it so Antigravity hooks can be added`);
+      }
+    }
+    const ours = antigravityHookSettings(this.wbScript);
+    hooks[ANTIGRAVITY_HOOK_GROUP] = ours[ANTIGRAVITY_HOOK_GROUP];
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(hooks, null, 2));
   }
 
   private fallback(terminal: vscode.Terminal, state: AgentState): void {
@@ -156,5 +193,14 @@ export class AgentTerminals implements vscode.Disposable {
       { placeHolder: 'Which agent?' },
     );
     return picked?.profile;
+  }
+}
+
+function isGitTracked(cwd: string, relPath: string): boolean {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', relPath], { cwd, stdio: 'ignore', windowsHide: true });
+    return true;
+  } catch {
+    return false;
   }
 }

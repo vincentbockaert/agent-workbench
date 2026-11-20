@@ -123,6 +123,10 @@ describe('report-view', () => {
       assert.deepEqual(parseReportMessage({ command: 'setBooked', booked: 'agent' }), { command: 'setBooked', booked: 'agent' });
       assert.deepEqual(parseReportMessage({ command: 'setRounding', roundToMinutes: '15' }), { command: 'setRounding', roundToMinutes: 15 });
       assert.deepEqual(parseReportMessage({ command: 'copyCsv' }), { command: 'copyCsv' });
+      assert.deepEqual(parseReportMessage({ command: 'bookToTracker' }), { command: 'bookToTracker' });
+      assert.deepEqual(parseReportMessage({ command: 'enterRow', ticket: 'Jira:P-1', day: '2026-11-04' }), { command: 'enterRow', ticket: 'Jira:P-1', day: '2026-11-04' });
+      assert.deepEqual(parseReportMessage({ command: 'bookRow', ticket: 'Jira:P-1', day: '2026-11-04' }), { command: 'bookRow', ticket: 'Jira:P-1', day: '2026-11-04' });
+      assert.deepEqual(parseReportMessage({ command: 'undoRow', ticket: 'Jira:P-1', day: '2026-11-04' }), { command: 'undoRow', ticket: 'Jira:P-1', day: '2026-11-04' });
       assert.equal(parseReportMessage({ command: 'setPeriod', period: 'forever' }), undefined);
       assert.equal(parseReportMessage({ command: 'setBooked', booked: 'all' }), undefined);
       assert.equal(parseReportMessage({ command: 'setRounding', roundToMinutes: 7 }), undefined);

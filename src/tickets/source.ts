@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { adfToText } from './adf';
+import { WorkStatus } from './workflow';
 
 // A ticket source is configuration, not code: a shell command that prints JSON,
 // plus a map from ticket fields to dotted paths in each JSON item.
@@ -10,6 +11,12 @@ export interface TicketSourceConfig {
   scope?: 'repo' | 'workspace';
   // Dotted path to the array of items when the command prints an object (e.g. "issues"); omit for a top-level array.
   itemsPath?: string;
+  // Optional opt-in shell command to log booked time directly in the tracker.
+  logTimeCmd?: string;
+  // Optional opt-in shell command to transition a ticket's status in the tracker.
+  setStatusCmd?: string;
+  // Maps workbench statuses (todo/doing/review/done) to tracker status names for setStatusCmd.
+  statusMap?: Partial<Record<WorkStatus, string>>;
   map: {
     id: string;
     title: string;

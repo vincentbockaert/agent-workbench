@@ -2,6 +2,7 @@
 // Status writer for agent hooks. Plain Node, no dependencies, so any agent can call it.
 //
 //   wb.js hook claude            Claude Code hook; event JSON on stdin
+//   wb.js hook antigravity       Antigravity hook; event JSON on stdin
 //   wb.js hook codex <json>      Codex `notify`; payload JSON as last argument
 //   wb.js status <state> [msg]   set a state directly (any other agent or script)
 //
@@ -43,6 +44,27 @@ function codexState(payload, _prev) {
     return { state: 'done', message: payload['last-assistant-message'] };
   }
   return undefined;
+}
+
+function antigravityState(input, _prev) {
+  if (!input || typeof input !== 'object') {
+    return undefined;
+  }
+  const sid = input.conversation_id || input.session_id || input.conversationId || input.sessionId;
+  const ids = sid ? { agentSessionId: String(sid) } : {};
+  const event = input.hook_event_name || input.event || input.event_name;
+  switch (event) {
+    case 'PreInvocation':
+    case 'PreToolUse':
+    case 'PostToolUse':
+      return { state: 'working', ...ids };
+    case 'PostInvocation':
+    case 'Stop':
+    case 'SessionStart':
+      return { state: 'done', ...(input.message ? { message: input.message } : {}), ...ids };
+    default:
+      return undefined;
+  }
 }
 
 function readStatus(file) {
@@ -103,11 +125,19 @@ function main(argv) {
 
   if (mode === 'hook') {
     try {
-      const raw = kind === 'claude' ? readStdin() : rest[rest.length - 1];
+      const raw = kind === 'claude' || kind === 'antigravity' ? readStdin() : rest[rest.length - 1];
       const input = JSON.parse(raw);
       if (file) {
         const prev = readStatus(file);
-        apply(file, kind === 'claude' ? claudeState(input, prev) : kind === 'codex' ? codexState(input, prev) : undefined);
+        const next =
+          kind === 'claude'
+            ? claudeState(input, prev)
+            : kind === 'antigravity'
+              ? antigravityState(input, prev)
+              : kind === 'codex'
+                ? codexState(input, prev)
+                : undefined;
+        apply(file, next);
       }
     } catch (e) {
       process.stderr.write(`wb: ignored hook input (${e.message})\n`);
@@ -115,7 +145,7 @@ function main(argv) {
     return 0;
   }
 
-  process.stderr.write('usage: wb.js hook claude|codex [json] | wb.js status <state> [message]\n');
+  process.stderr.write('usage: wb.js hook claude|antigravity|codex [json] | wb.js status <state> [message]\n');
   return 2;
 }
 
@@ -123,4 +153,4 @@ if (require.main === module) {
   process.exitCode = main(process.argv.slice(2));
 }
 
-module.exports = { STATES, claudeState, codexState, readStatus, writeStatus, main };
+module.exports = { STATES, claudeState, antigravityState, codexState, readStatus, writeStatus, main };

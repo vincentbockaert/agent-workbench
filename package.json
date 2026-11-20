@@ -2,7 +2,7 @@
   "name": "agent-workbench",
   "displayName": "Agent Workbench",
   "description": "Control room for parallel, ticket-driven agentic coding sessions in git worktrees.",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "private": true,
   "publisher": "local",
   "license": "Apache-2.0",
@@ -451,7 +451,7 @@
         "agentWorkbench.agents": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code) and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`.",
+          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code), `antigravity` (Google Antigravity `agy`), and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`, `${agentSessionId}`.",
           "items": {
             "type": "object",
             "required": [
@@ -478,6 +478,10 @@
               "resumeCmd": {
                 "type": "string",
                 "description": "Continues the latest conversation in this worktree, e.g. `claude --continue`."
+              },
+              "resumeWithIdCmd": {
+                "type": "string",
+                "description": "Resumes a specific conversation when status.json recorded an agentSessionId, e.g. `agy --conversation ${agentSessionId}`."
               }
             }
           }
@@ -563,6 +567,21 @@
           "minimum": 0,
           "description": "Time reports round the booked figure up to blocks of this many minutes (0 = no rounding). Stored data is never rounded."
         },
+        "agentWorkbench.syncStatusToTracker": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "auto",
+            "off"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Ask before running the source's setStatusCmd when a ticket's workbench status changes.",
+            "Automatically run the source's setStatusCmd whenever a ticket's workbench status changes.",
+            "Never sync workbench status changes to ticket sources."
+          ],
+          "description": "Whether workbench status changes should also transition the ticket in sources that configure setStatusCmd and statusMap."
+        },
         "agentWorkbench.ticketSources": {
           "type": "array",
           "default": [],
@@ -596,6 +615,33 @@
               "itemsPath": {
                 "type": "string",
                 "description": "Dotted path to the array of tickets when the command prints an object (e.g. \"issues\")."
+              },
+              "logTimeCmd": {
+                "type": "string",
+                "description": "Optional opt-in shell command to book time directly into this tracker. Placeholders: ${id}, ${minutes}, ${seconds}, ${duration}, ${day}, ${startedAt}. Env vars: WB_TICKET_ID, WB_TICKET_SOURCE, WB_DAY, WB_MINUTES, WB_SECONDS, WB_DURATION, WB_STARTED_AT, WB_COMMENT."
+              },
+              "setStatusCmd": {
+                "type": "string",
+                "description": "Optional opt-in shell command to transition a ticket's status in this tracker when its workbench status changes. Placeholders: ${id}, ${status}. Env vars: WB_TICKET_ID, WB_TICKET_SOURCE, WB_STATUS, WB_WORK_STATUS."
+              },
+              "statusMap": {
+                "type": "object",
+                "description": "Maps workbench statuses (todo, doing, review, done) to tracker status names for setStatusCmd.",
+                "additionalProperties": false,
+                "properties": {
+                  "todo": {
+                    "type": "string"
+                  },
+                  "doing": {
+                    "type": "string"
+                  },
+                  "review": {
+                    "type": "string"
+                  },
+                  "done": {
+                    "type": "string"
+                  }
+                }
               },
               "map": {
                 "type": "object",

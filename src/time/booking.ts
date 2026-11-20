@@ -2,27 +2,52 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ReportRow } from './report';
 
-// You enter booked time in your tracker or timesheet yourself; this records locally that you did.
-// Nothing here talks to a tracker.
+// Records booked time in an append-only local ledger (either entered manually or pushed via a source's logTimeCmd).
 export interface EnteredEntry {
   ticket: string; // "<source>:<id>" or "adhoc:<session>"
   day: string; // "YYYY-MM-DD"
-  minutes: number;
-  at: string; // ISO, when you marked it
+  minutes: number; // negative for undo entries
+  at: string; // ISO, when you marked or booked it
+  via?: 'local' | 'tracker';
+  comment?: string;
 }
 
 export type EntryStatus =
-  | { kind: 'entered'; minutes: number }
+  | { kind: 'entered'; minutes: number; via?: 'local' | 'tracker' }
   | { kind: 'changed'; enteredMinutes: number; minutes: number } // more (or less) booked since you entered it
   | { kind: 'open'; minutes: number };
 
+export function enteredMinutesOf(ticket: string, day: string, entered: EnteredEntry[]): { total: number; lastVia?: 'local' | 'tracker' } {
+  let total = 0;
+  let lastVia: 'local' | 'tracker' | undefined;
+  for (const e of entered) {
+    if (e.ticket === ticket && e.day === day) {
+      total += e.minutes;
+      if (e.minutes > 0) {
+        lastVia = e.via ?? 'local';
+      }
+    }
+  }
+  return { total, lastVia };
+}
+
 export function entryStatus(row: ReportRow, entered: EnteredEntry[]): EntryStatus {
   const minutes = Math.round(row.bookedMs / 60_000);
-  const done = entered.filter((e) => e.ticket === row.ticket && e.day === row.day).reduce((sum, e) => sum + e.minutes, 0);
-  if (done === 0) {
+  const { total: done, lastVia } = enteredMinutesOf(row.ticket, row.day, entered);
+  if (done <= 0) {
     return { kind: 'open', minutes };
   }
-  return done === minutes ? { kind: 'entered', minutes } : { kind: 'changed', enteredMinutes: done, minutes };
+  return done === minutes ? { kind: 'entered', minutes, ...(lastVia ? { via: lastVia } : {}) } : { kind: 'changed', enteredMinutes: done, minutes };
+}
+
+// Appends a compensating negative-minute entry so the ledger stays append-only and undoable.
+export function undoEntered(file: string, ticket: string, day: string, entered: EnteredEntry[], at = new Date().toISOString()): number {
+  const { total } = enteredMinutesOf(ticket, day, entered);
+  if (total <= 0) {
+    return 0;
+  }
+  appendEntered(file, { ticket, day, minutes: -total, at, via: 'local' });
+  return total;
 }
 
 // Rows "Mark as entered…" offers: not entered yet, or booked time grew since.

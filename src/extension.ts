@@ -20,14 +20,16 @@ import { prTargets } from './pr/targets';
 import { addWorktreeForBranch } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
+import { bookTimeToTracker, buildSetStatusCommand, syncStatusToTracker } from './tickets/trackerSync';
 import { displayedMs, promptAdjustment } from './time/commands';
 import { clockMark, shortLabel } from './time/clockbar';
 import { formatDuration } from './time/report';
 import { ticketKey, ticketKeyOf } from './time/rules';
 import { TimeTracker } from './time/tracker';
-import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore } from './tickets/workflow';
+import { statusAfter, WORK_LABELS, WORK_STATUSES, WorkEvent, WorkflowStore, WorkStatus } from './tickets/workflow';
 import { openBranchChange, openChange, registerChangeProviders, sessionForEditor } from './ui/changes';
 import { askInstructions, startWithInstructions, START_AGENT_COMMAND } from './ui/instructions';
+import { askNewSession, NewSessionBranchOption } from './ui/newSession';
 import { ClockStatus, TIMER_MENU_COMMAND } from './ui/clockstatus';
 import { StatusSignals } from './ui/signals';
 import { WorkNode, WorkTreeProvider } from './ui/tree';
@@ -62,17 +64,64 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     changed();
     void workIndex.ensure().then(() => tree.refresh());
   };
-  // The workbench's own ticket status; trackers are only ever read.
+  // The workbench's own ticket status; optionally synced to the tracker when setStatusCmd + statusMap are configured.
   const workflow = new WorkflowStore(path.join(context.globalStorageUri.fsPath, 'ticket-status.json'));
   if (workflow.warning) {
     void vscode.window.showWarningMessage(`Agent Workbench: ${workflow.warning}`);
   }
+  const resolveSourceForKey = (key: string): { cfg: TicketSourceConfig; cwd: string; ticketId: string } | undefined => {
+    const idx = key.indexOf(':');
+    if (idx <= 0) {
+      return undefined;
+    }
+    const sourceName = key.slice(0, idx);
+    const ticketId = key.slice(idx + 1);
+    if (sourceName === 'adhoc' || !ticketId) {
+      return undefined;
+    }
+    const found = effectiveSources().find((s) => s.cfg.name === sourceName);
+    return found ? { cfg: found.cfg, cwd: found.cwd, ticketId } : undefined;
+  };
+  const setTicketWorkStatus = (key: string, next: WorkStatus): void => {
+    workflow.set(key, next);
+    tree.refresh();
+    const mode = vscode.workspace.getConfiguration('agentWorkbench').get<'ask' | 'auto' | 'off'>('syncStatusToTracker', 'ask');
+    if (mode === 'off') {
+      return;
+    }
+    const resolved = resolveSourceForKey(key);
+    if (!resolved) {
+      return;
+    }
+    const built = buildSetStatusCommand(resolved.cfg, { ticketId: resolved.ticketId, workStatus: next });
+    if (!built) {
+      return;
+    }
+    void (async () => {
+      if (mode === 'ask') {
+        const answer = await vscode.window.showInformationMessage(
+          `Update ${resolved.ticketId} in ${resolved.cfg.name} to "${built.trackerStatus}"?`,
+          'Update',
+          'Skip',
+        );
+        if (answer !== 'Update') {
+          return;
+        }
+      }
+      try {
+        await syncStatusToTracker(resolved.cfg, resolved.cwd, { ticketId: resolved.ticketId, workStatus: next });
+        void vscode.window.showInformationMessage(`Updated ${resolved.ticketId} in ${resolved.cfg.name} to "${built.trackerStatus}".`);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Agent Workbench: could not update status of ${resolved.ticketId}: ${(e as Error).message}`);
+      }
+    })();
+  };
   const advance = (session: Session, event: WorkEvent): void => {
     if (session.ticket) {
       const key = ticketKey(session);
       const next = statusAfter(workflow.get(key), event);
       if (next) {
-        workflow.set(key, next);
+        setTicketWorkStatus(key, next);
       }
     }
   };
@@ -119,6 +168,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logDir,
     enteredFile: path.join(context.globalStorageUri.fsPath, 'entered.jsonl'),
     titles: reportTitles,
+    canBook: (key) => Boolean(resolveSourceForKey(key)?.cfg.logTimeCmd),
+    bookToTracker: async (key, day, minutes, comment) => {
+      const resolved = resolveSourceForKey(key);
+      if (!resolved?.cfg.logTimeCmd) {
+        throw new Error(`no logTimeCmd configured for ${key}`);
+      }
+      await bookTimeToTracker(resolved.cfg, resolved.cwd, { ticketId: resolved.ticketId, day, minutes, comment });
+    },
   });
   clockStatus = new ClockStatus(tracker.clock, () => tracker.liveToday(), reportTitles);
   tracker.start();
@@ -198,8 +255,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onMessage: (key, msg, session) => {
       switch (msg.command) {
         case 'setStatus':
-          workflow.set(key, msg.status);
-          return tree.refresh();
+          return setTicketWorkStatus(key, msg.status);
         case 'newSession': {
           const t = snapshotTicket(key);
           return t ? void newSession({ ticket: t }) : undefined;
@@ -230,6 +286,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return tracker.clock.stop(key);
         case 'openTask':
           return session ? void vscode.commands.executeCommand('agentWorkbench.openSessionTask', { kind: 'session', session }) : undefined;
+        case 'createPr':
+          return session ? void vscode.commands.executeCommand('agentWorkbench.createPullRequest', { kind: 'session', session }) : undefined;
+        case 'finishSession':
+          return session ? void vscode.commands.executeCommand('agentWorkbench.finishSession', { kind: 'session', session }) : undefined;
       }
     },
   });
@@ -259,84 +319,78 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     try {
-      // The ticket's own repo; for tickets of a workspace source and ad-hoc sessions, ask when there are several.
-      const chosen =
-        candidates.length === 1
-          ? candidates[0]
-          : (await vscode.window.showQuickPick(
-              candidates.map((r) => ({ label: r.name, description: r.root, repo: r })),
-              { title: 'In which repository?', placeHolder: 'The session gets its own worktree and branch in this repository.' },
-            ))?.repo;
-      if (!chosen) {
-        return;
-      }
       const cfg = vscode.workspace.getConfiguration('agentWorkbench');
-      // The base is chosen, never inferred from whatever the repo's own folder happens to have checked out.
-      const decision = resolveBase(cfg.get<BaseMode>('baseBranch', 'ask'), await listBaseChoices(chosen.root));
-      if ('error' in decision) {
-        void vscode.window.showErrorMessage(`Agent Workbench: ${decision.error}`);
-        return;
-      }
-      let baseRef: string;
-      if ('ref' in decision) {
-        baseRef = decision.ref;
-      } else {
-        const picked = await vscode.window.showQuickPick(
-          decision.ask.map((choice) => {
-            const d = describeBase(choice);
-            return { label: `$(git-branch) ${d.label}`, description: d.description, detail: d.warning && `$(warning) ${d.warning}`, ref: choice.ref };
-          }),
-          {
-            title: `Start ${opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title} from which branch?`,
-            placeHolder: 'The session gets its own branch and worktree, created from this one. Uncommitted work elsewhere is not included.',
-            matchOnDescription: true,
-          },
-        );
-        if (!picked) {
-          return;
+      const baseMode = cfg.get<BaseMode>('baseBranch', 'ask');
+      const isAdhoc = !opts.ticket;
+
+      const loadRepoState = async (repoRoot: string): Promise<{ branches: NewSessionBranchOption[]; selectedBranch: string; predictedBranch: string }> => {
+        const rawChoices = await listBaseChoices(repoRoot);
+        const decision = resolveBase(baseMode, rawChoices);
+        if ('error' in decision) {
+          throw new Error(decision.error);
         }
-        baseRef = picked.ref;
-      }
-      const repo = { root: chosen.root, branch: baseRef };
-      // Show the agent choice with the branch and folder it will create, before creating anything.
-      const predicted = await nextSessionId(repo.root, sessionSlugBase(opts.ticket, opts.adhoc?.title), store);
+        const branches: NewSessionBranchOption[] = rawChoices.map((c) => {
+          const d = describeBase(c);
+          return { ref: c.ref, label: d.label, description: d.description, warning: d.warning };
+        });
+        const selectedBranch = 'ref' in decision ? decision.ref : branches[0].ref;
+        const predicted = await nextSessionId(repoRoot, sessionSlugBase(opts.ticket, opts.adhoc?.title || 'adhoc'), store);
+        return { branches, selectedBranch, predictedBranch: `wb/${predicted}` };
+      };
+
+      const initialRepo = candidates[0];
+      const initialRepoState = await loadRepoState(initialRepo.root);
       const lastUsed = opts.ticket
         ? store.list().filter((s) => s.ticket?.source === opts.ticket!.source && s.ticket.id === opts.ticket!.id && s.agent).pop()?.agent
         : undefined;
       const choices = agentChoices(agentProfiles().profiles, cfg.get<string>('defaultAgent', 'claude'), lastUsed, !cfg.get<boolean>('startAgentOnCreate', true));
-      const picked = await vscode.window.showQuickPick(
-        choices.map((choice) => ({
-          label: choice.label,
-          description: choice.description,
-          detail: choice.profile
-            ? agentCommand(choice.profile, 'start-bare', { sessionId: predicted, branch: `wb/${predicted}` })
-            : 'Work on it yourself; time is still tracked on this ticket',
-          choice,
-        })),
-        {
-          title: `Work on ${opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title} — branch wb/${predicted} from ${repo.branch}`,
-          placeHolder: 'Which agent? Next you can write its first request. Your open files and working tree are not touched.',
-          matchOnDetail: true,
+      const predictedId = initialRepoState.predictedBranch.replace(/^wb\//, '');
+      const agentOptions = choices.map((c) => ({
+        id: c.profile?.id ?? 'none',
+        label: c.label,
+        description: c.description,
+        detail: c.profile
+          ? agentCommand(c.profile, 'start-bare', { sessionId: predictedId, branch: initialRepoState.predictedBranch })
+          : 'Work on it yourself; time is still tracked on this ticket',
+      }));
+
+      const result = await askNewSession({
+        initial: {
+          heading: opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : 'New Ad-hoc Session',
+          subtitle: opts.ticket ? `${opts.ticket.source}${opts.ticket.status ? ` · ${opts.ticket.status}` : ''}` : undefined,
+          isAdhoc,
+          repos: candidates.map((r) => ({ root: r.root, name: r.name })),
+          selectedRepo: initialRepo.root,
+          branches: initialRepoState.branches,
+          selectedBranch: initialRepoState.selectedBranch,
+          agents: agentOptions,
+          selectedAgent: agentOptions[0]?.id ?? 'none',
+          predictedBranch: initialRepoState.predictedBranch,
+          descriptionPlaceholder: opts.ticket
+            ? 'Add extra context, constraints, or what to focus on first… (leave empty to start without a prompt)'
+            : 'Describe what you want the agent to work on… (optional)',
         },
-      );
-      if (!picked) {
+        onRepoChange: loadRepoState,
+      });
+      if (!result) {
         return;
       }
-      // With an agent: let the user write its first request. Empty or a closed tab starts it with no prompt.
-      let instructions: string | undefined = '';
-      if (picked.choice.profile) {
-        instructions = await askInstructions(opts.ticket ? `${opts.ticket.id} ${opts.ticket.title}` : opts.adhoc!.title);
-        if (instructions === undefined) {
-          return; // an instructions tab for another session is still open
-        }
-      }
-      const session = await startSession({ repo: repo.root, baseRef: repo.branch, store, instructions, ...opts });
+
+      const adhocPayload = isAdhoc ? { title: result.adhocTitle || opts.adhoc?.title || 'Ad-hoc session', description: opts.adhoc?.description ?? '' } : undefined;
+      const session = await startSession({
+        repo: result.repoRoot,
+        baseRef: result.baseRef,
+        store,
+        instructions: result.withPrompt ? result.instructions : '',
+        ...(opts.ticket ? { ticket: opts.ticket } : { adhoc: adhocPayload }),
+      });
       tracker.sessionStarted(session);
       clockOn(session);
       advance(session, 'session-started');
       changed();
-      if (picked.choice.profile) {
-        agents.startWith(session, picked.choice.profile, instructions !== '');
+      const chosenProfile = result.agentId === 'none' ? undefined : agentProfiles().profiles.find((p) => p.id === result.agentId);
+      if (chosenProfile) {
+        agents.startWith(session, chosenProfile, result.withPrompt && result.instructions.trim() !== '');
       } else {
         await vscode.window.showTextDocument(vscode.Uri.file(path.join(session.worktree, WORKBENCH_DIR, 'TASK.md')));
       }
@@ -404,19 +458,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const answer = await vscode.window.showInformationMessage(`That was the last session of ${ended.ticket.id}. Mark it Done in the workbench?`, 'Mark Done', 'Keep');
     if (answer === 'Mark Done') {
-      workflow.set(key, 'done');
+      setTicketWorkStatus(key, 'done');
     }
+  }
+
+  function updateViewDescription(): void {
+    const parts = [tree.filter ? `filter: ${tree.filter}` : undefined, tree.hideDone ? 'done hidden' : undefined].filter(Boolean);
+    view.description = parts.length > 0 ? parts.join(' · ') : undefined;
   }
 
   function setHideDone(hide: boolean): void {
     tree.hideDone = hide;
+    updateViewDescription();
     void vscode.commands.executeCommand('setContext', 'agentWorkbench.hideDone', hide);
     tree.refresh();
   }
 
   function setFilter(text: string): void {
     tree.filter = text.trim();
-    view.description = tree.filter ? `filter: ${tree.filter}` : undefined;
+    updateViewDescription();
     void vscode.commands.executeCommand('setContext', 'agentWorkbench.filtered', tree.filter !== '');
     tree.refresh();
   }
@@ -473,8 +533,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { title: `Workbench status of ${node.group.ticket.id}`, placeHolder: 'Only changes the workbench; the tracker is never touched' },
       );
       if (picked) {
-        workflow.set(key, picked.status);
-        tree.refresh();
+        setTicketWorkStatus(key, picked.status);
       }
     }),
 
@@ -538,17 +597,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
 
-    vscode.commands.registerCommand('agentWorkbench.newAdhocSession', async () => {
-      const title = await vscode.window.showInputBox({ prompt: 'Ad-hoc session title', placeHolder: 'Try the new parser' });
-      if (!title?.trim()) {
-        return;
-      }
-      const description = await vscode.window.showInputBox({ prompt: 'What should the agent do? (optional)' });
-      if (description === undefined) {
-        return;
-      }
-      return newSession({ adhoc: { title: title.trim(), description } });
-    }),
+    vscode.commands.registerCommand('agentWorkbench.newAdhocSession', () => newSession({})),
 
     vscode.commands.registerCommand('agentWorkbench.openSessionShell', (node?: WorkNode) => {
       const session = sessionOf(node);

@@ -34,9 +34,9 @@ describe('agents', () => {
   });
 
   describe('mergeProfiles', () => {
-    it('provides claude and codex by default', () => {
+    it('provides claude, antigravity and codex by default', () => {
       const { profiles, problems } = mergeProfiles([]);
-      assert.deepEqual(profiles.map((p) => p.id), ['claude', 'codex']);
+      assert.deepEqual(profiles.map((p) => p.id), ['claude', 'antigravity', 'codex']);
       assert.deepEqual(problems, []);
     });
 
@@ -44,17 +44,17 @@ describe('agents', () => {
       const mine = { id: 'claude', label: 'Claude (opus)', startCmd: 'claude --model opus' };
       const { profiles } = mergeProfiles([mine]);
       assert.deepEqual(profiles[0], mine);
-      assert.equal(profiles.length, 2);
+      assert.equal(profiles.length, 3);
     });
 
     it('appends new user profiles', () => {
       const aider = { id: 'aider', label: 'Aider', startCmd: 'aider --message-file ${promptFile}' };
-      assert.deepEqual(mergeProfiles([aider]).profiles.map((p) => p.id), ['claude', 'codex', 'aider']);
+      assert.deepEqual(mergeProfiles([aider]).profiles.map((p) => p.id), ['claude', 'antigravity', 'codex', 'aider']);
     });
 
     it('skips invalid entries and reports why', () => {
       const { profiles, problems } = mergeProfiles([{ id: 'x', label: 'X' }, 'nonsense', { id: 'ok', label: 'OK', startCmd: 'ok' }]);
-      assert.deepEqual(profiles.map((p) => p.id), ['claude', 'codex', 'ok']);
+      assert.deepEqual(profiles.map((p) => p.id), ['claude', 'antigravity', 'codex', 'ok']);
       assert.equal(problems.length, 2);
       assert.match(problems[0], /x.*startCmd/);
     });
@@ -77,6 +77,7 @@ describe('agents', () => {
 
     it('starts the built-in agents without any prompt in their bare form, in the worktree', () => {
       assert.equal(agentCommand(DEFAULT_PROFILES.find((p) => p.id === 'claude')!, 'start-bare', vars), 'claude -n github-42-1');
+      assert.equal(agentCommand(DEFAULT_PROFILES.find((p) => p.id === 'antigravity')!, 'start-bare', vars), 'agy');
       assert.equal(agentCommand(DEFAULT_PROFILES.find((p) => p.id === 'codex')!, 'start-bare', vars), 'codex');
     });
 
@@ -107,6 +108,12 @@ describe('agents', () => {
     it('resumes claude with --continue, which is scoped to the worktree folder', () => {
       const claude = DEFAULT_PROFILES.find((p) => p.id === 'claude')!;
       assert.equal(agentCommand(claude, 'resume', vars), 'claude --continue');
+    });
+
+    it('resumes antigravity with --conversation when agentSessionId is known, falling back to --continue', () => {
+      const agy = DEFAULT_PROFILES.find((p) => p.id === 'antigravity')!;
+      assert.equal(agentCommand(agy, 'resume', vars), 'agy --continue');
+      assert.equal(agentCommand(agy, 'resume', { ...vars, agentSessionId: 'conv-123' }), 'agy --conversation conv-123');
     });
 
     it('fails clearly when a profile has no resume command', () => {

@@ -10,7 +10,7 @@ import { readEvents } from '../time/log';
 import { localDays } from '../time/report';
 import { ticketKey } from '../time/rules';
 import { buildTicketHub, HubInput, HubTicket } from './model';
-import { HubMessage, parseHubMessage, renderTicketHub } from './render';
+import { HubMessage, parseHubMessage, renderTicketHub, renderTicketHubBody } from './render';
 
 export interface HubDeps {
   sessions: () => Session[];
@@ -29,7 +29,7 @@ export interface HubDeps {
 // One editor tab per ticket. Re-rendered when anything changes, but only if what it shows changed,
 // so the page does not jump while you read it.
 export class TicketHubs implements vscode.Disposable {
-  private readonly panels = new Map<string, { panel: vscode.WebviewPanel; lastModel?: string }>();
+  private readonly panels = new Map<string, { panel: vscode.WebviewPanel; lastModel?: string; initialized?: boolean }>();
   private pending?: NodeJS.Timeout;
 
   constructor(private readonly deps: HubDeps) {}
@@ -45,8 +45,8 @@ export class TicketHubs implements vscode.Disposable {
       void vscode.window.showWarningMessage(`Agent Workbench: ticket ${key} is not known; refresh tickets first.`);
       return;
     }
-    const panel = vscode.window.createWebviewPanel('agentWorkbench.ticketHub', ticket.id, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false });
-    const entry: { panel: vscode.WebviewPanel; lastModel?: string } = { panel };
+    const panel = vscode.window.createWebviewPanel('agentWorkbench.ticketHub', ticket.id, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
+    const entry: { panel: vscode.WebviewPanel; lastModel?: string; initialized?: boolean } = { panel };
     this.panels.set(key, entry);
     panel.onDidDispose(() => this.panels.delete(key));
     panel.webview.onDidReceiveMessage((raw) => {
@@ -78,7 +78,7 @@ export class TicketHubs implements vscode.Disposable {
     this.panels.forEach((p) => p.panel.dispose());
   }
 
-  private async render(key: string, entry: { panel: vscode.WebviewPanel; lastModel?: string }): Promise<void> {
+  private async render(key: string, entry: { panel: vscode.WebviewPanel; lastModel?: string; initialized?: boolean }): Promise<void> {
     const ticket = this.deps.findTicket(key);
     if (!ticket) {
       return;
@@ -115,6 +115,11 @@ export class TicketHubs implements vscode.Disposable {
     }
     entry.lastModel = serialized;
     entry.panel.title = ticket.id;
-    entry.panel.webview.html = renderTicketHub(model, randomBytes(16).toString('hex'), entry.panel.webview.cspSource);
+    if (!entry.initialized) {
+      entry.initialized = true;
+      entry.panel.webview.html = renderTicketHub(model, randomBytes(16).toString('hex'), entry.panel.webview.cspSource);
+    } else {
+      void entry.panel.webview.postMessage({ type: 'update', html: renderTicketHubBody(model) });
+    }
   }
 }

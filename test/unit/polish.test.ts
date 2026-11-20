@@ -28,28 +28,28 @@ describe('polish', function () {
 
     it('puts the default first, then the rest in profile order, and "no agent" last', () => {
       const cs = agentChoices(profiles, 'claude', undefined, false);
-      assert.deepEqual(ids(cs), ['claude', 'codex', 'aider', 'none']);
+      assert.deepEqual(ids(cs), ['claude', 'antigravity', 'codex', 'aider', 'none']);
       assert.equal(cs[0].description, 'default');
     });
 
     it('puts the agent last used on this ticket second, labelled', () => {
       const cs = agentChoices(profiles, 'claude', 'aider', false);
-      assert.deepEqual(ids(cs), ['claude', 'aider', 'codex', 'none']);
+      assert.deepEqual(ids(cs), ['claude', 'aider', 'antigravity', 'codex', 'none']);
       assert.equal(cs[1].description, 'last used on this ticket');
     });
 
     it('does not label the default twice when it was also last used', () => {
       const cs = agentChoices(profiles, 'codex', 'codex', false);
-      assert.deepEqual(ids(cs), ['codex', 'claude', 'aider', 'none']);
+      assert.deepEqual(ids(cs), ['codex', 'claude', 'antigravity', 'aider', 'none']);
       assert.equal(cs[0].description, 'default');
     });
 
     it('puts "no agent" first when agents should not start automatically', () => {
-      assert.deepEqual(ids(agentChoices(profiles, 'claude', undefined, true)), ['none', 'claude', 'codex', 'aider']);
+      assert.deepEqual(ids(agentChoices(profiles, 'claude', undefined, true)), ['none', 'claude', 'antigravity', 'codex', 'aider']);
     });
 
     it('ignores a default or last-used id that is not a known profile', () => {
-      assert.deepEqual(ids(agentChoices(profiles, 'gone', 'also-gone', false)), ['claude', 'codex', 'aider', 'none']);
+      assert.deepEqual(ids(agentChoices(profiles, 'gone', 'also-gone', false)), ['claude', 'antigravity', 'codex', 'aider', 'none']);
     });
   });
 

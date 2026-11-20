@@ -114,7 +114,7 @@ Notes:
 
 ## Agents
 
-Built in: `claude` (Claude Code) and `codex`. Add or override profiles in `agentWorkbench.agents`:
+Built in: `claude` (Claude Code), `antigravity` (Google Antigravity `agy`), and `codex`. Add or override profiles in `agentWorkbench.agents`:
 
 ```json
 "agentWorkbench.agents": [
@@ -142,6 +142,7 @@ Placeholders: `${promptFile}` (the relative path `.workbench/TASK.md`), `${sessi
 Agents report their state through `bin/wb.js`, which writes `.workbench/status.json` in the session (from `$WB_STATUS_FILE`, set in each session terminal):
 
 - **Claude Code:** set up automatically. Opening an agent writes hooks into the worktree's `.claude/settings.local.json` (git-excluded).
+- **Antigravity (`agy`):** set up automatically. Opening an agent writes the `agent-workbench` hook group into the worktree's `.agents/hooks.json` (git-excluded, or falls back to `~/.gemini/config/hooks.json` if `.agents/hooks.json` is tracked by git). Resuming uses `agy --conversation ${agentSessionId}` when recorded, falling back to `agy --continue`.
 - **Codex:** add once to `~/.codex/config.toml`: `notify = ["node", "<extension folder>/bin/wb.js", "hook", "codex"]`. Codex reports finished turns only, not approval prompts.
 - **Anything else:** call `node <extension folder>/bin/wb.js status needs-input "message"` (states: `working`, `needs-input`, `done`, `exited`).
 - Without hooks, the terminal's start and end still give "working" and "stopped".
@@ -257,9 +258,7 @@ npm run package      # build the .vsix
 ## Known limits
 
 - Your time (the evidence figure) cannot see typing inside an agent's terminal; it counts from submitting or answering a prompt. The timer does not have this limit, because it runs until you stop it.
-- Codex has no approval hook, so it never shows "needs input".
-- Ticket tabs and the time report redraw fully when their numbers change, which resets scrolling.
-- "Mark as entered" cannot be undone from the UI yet.
+- Codex and Antigravity hooks do not currently emit a separate approval-prompt event, so they report `working` and `your move` (turn done) rather than `needs input`.
 
 ## License
 

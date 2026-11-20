@@ -10,13 +10,15 @@ export type HubMessage =
   | { command: 'openAgent'; session: string }
   | { command: 'openShell'; session: string }
   | { command: 'openTask'; session: string }
+  | { command: 'createPr'; session: string }
+  | { command: 'finishSession'; session: string }
   | { command: 'refreshPrs' }
   | { command: 'openPr'; pr: string }
   | { command: 'setStatus'; status: WorkStatus }
   | { command: 'startTimer' }
   | { command: 'stopTimer' };
 
-const SESSION_COMMANDS = ['openAgent', 'openShell', 'openTask'];
+const SESSION_COMMANDS = ['openAgent', 'openShell', 'openTask', 'createPr', 'finishSession'];
 const TICKET_COMMANDS = ['newSession', 'openInBrowser', 'adjustTime', 'refreshPrs', 'startTimer', 'stopTimer'];
 
 function esc(s: string | undefined): string {
@@ -101,13 +103,25 @@ function sessionRow(s: HubSession): string {
     <button class="${s.state === 'needs-input' ? 'primary' : ''}" data-command="openAgent" data-session="${esc(s.id)}">${primary}</button>
     <button data-command="openShell" data-session="${esc(s.id)}">Shell</button>
     <button data-command="openTask" data-session="${esc(s.id)}">Task</button>
+    <button data-command="createPr" data-session="${esc(s.id)}" title="Push branch and open PR command">PR</button>
+    <button data-command="finishSession" data-session="${esc(s.id)}" title="Remove worktree and keep branch">Finish</button>
   </td>
 </tr>`;
 }
 
-// The whole webview HTML. All tracker text is escaped: it is untrusted input.
-// Styles follow the VS Code theme through its CSS variables; scripts only run with the nonce.
-export function renderTicketHub(model: HubModel, nonce: string, cspSource: string): string {
+function renderDescription(desc: string | undefined): string {
+  if (!desc) {
+    return '';
+  }
+  const lines = desc.split(/\r?\n/);
+  if (desc.length > 360 || lines.length > 6) {
+    const preview = lines.slice(0, 3).join('\n').slice(0, 220).trim();
+    return `<details class="desc-wrap" id="ticketDesc"><summary class="muted">Description — ${esc(preview)}…</summary><p class="desc">${esc(desc)}</p></details>`;
+  }
+  return `<p class="desc">${esc(desc)}</p>`;
+}
+
+export function renderTicketHubBody(model: HubModel): string {
   const { ticket, sessions, week, days, timeline } = model;
   const maxDay = Math.max(1, ...days.map((d) => d.elapsedMs));
   const bars = days
@@ -120,59 +134,7 @@ export function renderTicketHub(model: HubModel, nonce: string, cspSource: strin
     ivs.map(([a, b]) => `<span class="${cls}" style="left:${(a * 100).toFixed(2)}%;width:${Math.max(0.3, (b - a) * 100).toFixed(2)}%"></span>`).join('');
   const hours = timeline.hours.map((h) => `<span style="left:${(h.at * 100).toFixed(2)}%">${esc(h.label)}</span>`).join('');
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(ticket.id)}</title>
-<style>
-body{margin:0;padding:28px 32px 48px;color:var(--vscode-foreground);background:var(--vscode-editor-background);font-family:var(--vscode-font-family);font-size:13px}
-main{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
-h1{margin:0;font-size:24px;font-weight:600}
-h2{margin:0 0 10px;font-size:11px;letter-spacing:.06em;font-weight:600;color:var(--vscode-descriptionForeground)}
-.muted{color:var(--vscode-descriptionForeground)}.small{font-size:11px}.mono{font-family:var(--vscode-editor-font-family);font-size:12px}
-.meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--vscode-descriptionForeground)}
-.meta label{display:flex;gap:6px;align-items:center}
-select{font:inherit;min-height:24px;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border)}
-.clock{padding:2px 8px;border-radius:10px;font-weight:600;color:var(--vscode-editor-background)}
-.clock.running{background:var(--vscode-charts-green)}.clock.paused{background:var(--vscode-charts-yellow)}
-.pill{padding:2px 8px;border-radius:10px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
-header{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:flex-start}
-header .text{flex:999 1 480px;min-width:0;display:flex;flex-direction:column;gap:10px}
-header .buttons{flex:1 1 240px;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
-p.desc{margin:0;max-width:720px;line-height:1.55;white-space:pre-wrap}
-button{font:inherit;min-height:28px;padding:0 12px;border-radius:2px;border:1px solid var(--vscode-button-border,transparent);background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);cursor:pointer}
-button:hover{background:var(--vscode-button-secondaryHoverBackground)}
-button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
-button.primary:hover{background:var(--vscode-button-hoverBackground)}
-button:disabled{opacity:.5;cursor:default}
-.table{overflow-x:auto;border:1px solid var(--vscode-panel-border);border-radius:4px}
-table{width:100%;min-width:820px;border-collapse:collapse}
-th{text-align:left;font-weight:500;font-size:12px;color:var(--vscode-descriptionForeground);padding:9px 12px;background:var(--vscode-sideBar-background)}
-td{padding:9px 12px;border-top:1px solid var(--vscode-panel-border)}
-tr.attention td{background:color-mix(in srgb,var(--vscode-charts-orange) 9%,transparent)}
-td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px}
-.add{color:var(--vscode-gitDecoration-addedResourceForeground)}.del{color:var(--vscode-gitDecoration-deletedResourceForeground)}
-.sectionhead{display:flex;gap:12px;align-items:center;margin-bottom:10px}.sectionhead h2{margin:0}.sectionhead button{margin-left:auto}
-.row{display:flex;flex-wrap:wrap;gap:24px}.row>section{flex:1 1 340px;min-width:0}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
-.card{border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
-.card b{font-size:20px;font-weight:600}
-.days{height:130px;border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 16px 8px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;align-items:end}
-.day{display:flex;flex-direction:column;align-items:center;gap:6px}.bar{width:100%;border-radius:3px 3px 0 0;background:var(--vscode-descriptionForeground);opacity:.55}
-.day.today .bar{opacity:1;background:var(--vscode-foreground)}
-.lanes{display:grid;grid-template-columns:56px minmax(0,1fr);gap:6px 10px;align-items:center;font-size:12px}
-.lane{position:relative;height:14px;border-radius:3px;background:var(--vscode-input-background)}
-.lane span{position:absolute;top:0;bottom:0;border-radius:3px}
-.you{background:var(--vscode-charts-blue)}.agents{background:var(--vscode-charts-purple)}.timer{background:var(--vscode-charts-green)}
-.axis{position:relative;height:14px;font-size:11px;color:var(--vscode-descriptionForeground)}.axis span{position:absolute;transform:translateX(-50%)}
-</style>
-</head>
-<body>
-<main>
-<header>
+  return `<header>
   <div class="text">
     <div class="meta">
       <span class="mono">${esc(ticket.source)} · ${esc(ticket.id)}</span>
@@ -182,7 +144,7 @@ td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px
       ${model.clock ? `<span class="clock ${model.clock.running ? 'running' : 'paused'}" title="${esc(model.clock.tooltip)}">${esc(model.clock.text)} · ${model.clock.running ? 'running' : 'paused'}</span>` : ''}
     </div>
     <h1>${esc(ticket.title)}</h1>
-    ${ticket.description ? `<p class="desc">${esc(ticket.description)}</p>` : ''}
+    ${renderDescription(ticket.description)}
   </div>
   <div class="buttons">
     ${ticket.url ? '<button data-command="openInBrowser">Open in tracker</button>' : ''}
@@ -226,14 +188,92 @@ ${prSection(model.pullRequests)}
     <span class="muted">Agents</span><div class="lane">${spans(timeline.agents, 'agents')}</div>
     <span></span><div class="axis">${hours}</div>
   </div>
-</section>
+</section>`;
+}
+
+// The whole webview HTML. All tracker text is escaped: it is untrusted input.
+// Styles follow the VS Code theme through its CSS variables; scripts only run with the nonce.
+export function renderTicketHub(model: HubModel, nonce: string, cspSource: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(model.ticket.id)}</title>
+<style>
+body{margin:0;padding:28px 32px 48px;color:var(--vscode-foreground);background:var(--vscode-editor-background);font-family:var(--vscode-font-family);font-size:13px}
+main{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{margin:0;font-size:24px;font-weight:600}
+h2{margin:0 0 10px;font-size:11px;letter-spacing:.06em;font-weight:600;color:var(--vscode-descriptionForeground)}
+.muted{color:var(--vscode-descriptionForeground)}.small{font-size:11px}.mono{font-family:var(--vscode-editor-font-family);font-size:12px}
+.meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--vscode-descriptionForeground)}
+.meta label{display:flex;gap:6px;align-items:center}
+select{font:inherit;min-height:24px;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border)}
+.clock{padding:2px 8px;border-radius:10px;font-weight:600;color:var(--vscode-editor-background)}
+.clock.running{background:var(--vscode-charts-green)}.clock.paused{background:var(--vscode-charts-yellow)}
+.pill{padding:2px 8px;border-radius:10px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
+header{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:flex-start}
+header .text{flex:999 1 480px;min-width:0;display:flex;flex-direction:column;gap:10px}
+header .buttons{flex:1 1 240px;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+p.desc{margin:0;max-width:720px;line-height:1.55;white-space:pre-wrap}
+details.desc-wrap{max-width:720px}details.desc-wrap summary{cursor:pointer;line-height:1.45;user-select:none}details.desc-wrap[open] summary{margin-bottom:8px}
+button{font:inherit;min-height:28px;padding:0 12px;border-radius:2px;border:1px solid var(--vscode-button-border,transparent);background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);cursor:pointer}
+button:hover{background:var(--vscode-button-secondaryHoverBackground)}
+button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+button.primary:hover{background:var(--vscode-button-hoverBackground)}
+button:disabled{opacity:.5;cursor:default}
+.table{overflow-x:auto;border:1px solid var(--vscode-panel-border);border-radius:4px}
+table{width:100%;min-width:820px;border-collapse:collapse}
+th{text-align:left;font-weight:500;font-size:12px;color:var(--vscode-descriptionForeground);padding:9px 12px;background:var(--vscode-sideBar-background)}
+td{padding:9px 12px;border-top:1px solid var(--vscode-panel-border)}
+tr.attention td{background:color-mix(in srgb,var(--vscode-charts-orange) 9%,transparent)}
+td.actions{text-align:right;white-space:nowrap}td.actions button{margin-left:6px}
+.add{color:var(--vscode-gitDecoration-addedResourceForeground)}.del{color:var(--vscode-gitDecoration-deletedResourceForeground)}
+.sectionhead{display:flex;gap:12px;align-items:center;margin-bottom:10px}.sectionhead h2{margin:0}.sectionhead button{margin-left:auto}
+.row{display:flex;flex-wrap:wrap;gap:24px}.row>section{flex:1 1 340px;min-width:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
+.card{border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.card b{font-size:20px;font-weight:600}
+.days{height:130px;border:1px solid var(--vscode-panel-border);border-radius:4px;padding:12px 16px 8px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;align-items:end}
+.day{display:flex;flex-direction:column;align-items:center;gap:6px}.bar{width:100%;border-radius:3px 3px 0 0;background:var(--vscode-descriptionForeground);opacity:.55}
+.day.today .bar{opacity:1;background:var(--vscode-foreground)}
+.lanes{display:grid;grid-template-columns:56px minmax(0,1fr);gap:6px 10px;align-items:center;font-size:12px}
+.lane{position:relative;height:14px;border-radius:3px;background:var(--vscode-input-background)}
+.lane span{position:absolute;top:0;bottom:0;border-radius:3px}
+.you{background:var(--vscode-charts-blue)}.agents{background:var(--vscode-charts-purple)}.timer{background:var(--vscode-charts-green)}
+.axis{position:relative;height:14px;font-size:11px;color:var(--vscode-descriptionForeground)}.axis span{position:absolute;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<main id="root">
+${renderTicketHubBody(model)}
 </main>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
-document.getElementById('workStatus').addEventListener('change', (e) => vscode.postMessage({ command: 'setStatus', status: e.target.value }));
-for (const b of document.querySelectorAll('button[data-command]')) {
-  b.addEventListener('click', () => vscode.postMessage({ command: b.dataset.command, session: b.dataset.session, pr: b.dataset.pr }));
-}
+const root = document.getElementById('root');
+root.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'workStatus') {
+    vscode.postMessage({ command: 'setStatus', status: e.target.value });
+  }
+});
+root.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('button[data-command]') : null;
+  if (b && !b.disabled) {
+    vscode.postMessage({ command: b.dataset.command, session: b.dataset.session, pr: b.dataset.pr });
+  }
+});
+window.addEventListener('message', (e) => {
+  const msg = e.data;
+  if (!msg || msg.type !== 'update') return;
+  const scrollY = window.scrollY;
+  const desc = document.getElementById('ticketDesc');
+  const descOpen = desc ? desc.open : false;
+  root.innerHTML = msg.html;
+  const nextDesc = document.getElementById('ticketDesc');
+  if (nextDesc && descOpen) nextDesc.open = true;
+  window.scrollTo(0, scrollY);
+});
 </script>
 </body>
 </html>`;

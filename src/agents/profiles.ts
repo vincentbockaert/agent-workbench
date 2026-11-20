@@ -7,6 +7,8 @@ export interface AgentProfile {
   // Without it the bare start falls back to startCmd.
   startNoPromptCmd?: string;
   resumeCmd?: string;
+  // Used instead of resumeCmd when status.json recorded an agentSessionId (e.g. agy --conversation ${agentSessionId}).
+  resumeWithIdCmd?: string;
 }
 
 // Commands run with the worktree as cwd, so "continue the latest conversation here" is per session.
@@ -14,12 +16,21 @@ export interface AgentProfile {
 const START_PROMPT = 'Read ${promptFile} and do the task described there. Follow its Instructions section first, if it has one.';
 export const DEFAULT_PROFILES: AgentProfile[] = [
   { id: 'claude', label: 'Claude Code', startCmd: `claude -n \${sessionId} "${START_PROMPT}"`, startNoPromptCmd: 'claude -n ${sessionId}', resumeCmd: 'claude --continue' },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    startCmd: `agy -i "${START_PROMPT}"`,
+    startNoPromptCmd: 'agy',
+    resumeCmd: 'agy --continue',
+    resumeWithIdCmd: 'agy --conversation ${agentSessionId}',
+  },
   { id: 'codex', label: 'Codex', startCmd: `codex "${START_PROMPT}"`, startNoPromptCmd: 'codex', resumeCmd: 'codex resume --last' },
 ];
 
 export interface CommandVars {
   sessionId: string;
   branch: string;
+  agentSessionId?: string;
 }
 
 const PROMPT_FILE = '.workbench/TASK.md';
@@ -60,12 +71,15 @@ function validate(entry: unknown): string | undefined {
   if (p.resumeCmd !== undefined && typeof p.resumeCmd !== 'string') {
     return `agent profile ${name}: "resumeCmd" must be a string`;
   }
+  if (p.resumeWithIdCmd !== undefined && typeof p.resumeWithIdCmd !== 'string') {
+    return `agent profile ${name}: "resumeWithIdCmd" must be a string`;
+  }
   if (p.startNoPromptCmd !== undefined && typeof p.startNoPromptCmd !== 'string') {
     return `agent profile ${name}: "startNoPromptCmd" must be a string`;
   }
   try {
-    for (const cmd of [p.startCmd!, p.resumeCmd ?? '', p.startNoPromptCmd ?? '']) {
-      expandCommand(cmd, { sessionId: '', branch: '' });
+    for (const cmd of [p.startCmd!, p.resumeCmd ?? '', p.resumeWithIdCmd ?? '', p.startNoPromptCmd ?? '']) {
+      expandCommand(cmd, { sessionId: '', branch: '', agentSessionId: '' });
     }
   } catch (e) {
     return `agent profile ${name}: ${(e as Error).message}`;
@@ -75,10 +89,15 @@ function validate(entry: unknown): string | undefined {
 
 // Single pass, so placeholders inside inserted values are left as they are.
 export function expandCommand(template: string, vars: CommandVars): string {
-  const values: Record<string, string> = { promptFile: PROMPT_FILE, sessionId: vars.sessionId, branch: vars.branch };
+  const values: Record<string, string> = {
+    promptFile: PROMPT_FILE,
+    sessionId: vars.sessionId,
+    branch: vars.branch,
+    ...(vars.agentSessionId !== undefined ? { agentSessionId: vars.agentSessionId } : {}),
+  };
   return template.replace(PLACEHOLDER, (match, name: string) => {
     if (!(name in values)) {
-      throw new Error(`unknown placeholder ${match} (use \${promptFile}, \${sessionId} or \${branch})`);
+      throw new Error(`unknown placeholder ${match} (use \${promptFile}, \${sessionId}, \${branch} or \${agentSessionId})`);
     }
     return values[name];
   });
@@ -88,9 +107,15 @@ export function expandCommand(template: string, vars: CommandVars): string {
 export type AgentMode = 'start' | 'start-bare' | 'resume';
 
 export function agentCommand(profile: AgentProfile, mode: AgentMode, vars: CommandVars): string {
-  if (mode === 'resume' && !profile.resumeCmd) {
-    throw new Error(`${profile.label} has no resume command`);
+  if (mode === 'resume') {
+    if (vars.agentSessionId && profile.resumeWithIdCmd) {
+      return expandCommand(profile.resumeWithIdCmd, vars);
+    }
+    if (!profile.resumeCmd) {
+      throw new Error(`${profile.label} has no resume command`);
+    }
+    return expandCommand(profile.resumeCmd, vars);
   }
-  const template = mode === 'resume' ? profile.resumeCmd! : mode === 'start-bare' ? profile.startNoPromptCmd ?? profile.startCmd : profile.startCmd;
+  const template = mode === 'start-bare' ? profile.startNoPromptCmd ?? profile.startCmd : profile.startCmd;
   return expandCommand(template, vars);
 }

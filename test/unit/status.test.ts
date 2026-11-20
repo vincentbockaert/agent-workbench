@@ -3,7 +3,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { claudeHookSettings, parseStatus, shouldNotify } from '../../src/agents/status';
+import { ANTIGRAVITY_HOOK_GROUP, antigravityHookSettings, claudeHookSettings, parseStatus, shouldNotify } from '../../src/agents/status';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const wb = require('../../bin/wb.js');
@@ -57,6 +57,26 @@ describe('status', function () {
     });
   });
 
+  describe('antigravityState (hook event → state)', () => {
+    it('marks invocation and tool events as working and extracts conversation_id', () => {
+      const next = wb.antigravityState({ hook_event_name: 'PreToolUse', conversation_id: 'conv-42' }, done);
+      assert.deepEqual([next.state, next.agentSessionId], ['working', 'conv-42']);
+      assert.equal(wb.antigravityState({ event: 'PreInvocation' }, done).state, 'working');
+      assert.equal(wb.antigravityState({ event_name: 'PostToolUse' }, done).state, 'working');
+    });
+
+    it('marks Stop, PostInvocation and SessionStart as done', () => {
+      assert.equal(wb.antigravityState({ hook_event_name: 'Stop', session_id: 's-9' }, working).state, 'done');
+      assert.equal(wb.antigravityState({ hook_event_name: 'PostInvocation' }, working).state, 'done');
+      assert.equal(wb.antigravityState({ hook_event_name: 'SessionStart' }, undefined).state, 'done');
+    });
+
+    it('ignores unknown events', () => {
+      assert.equal(wb.antigravityState({ hook_event_name: 'Unknown' }, working), undefined);
+      assert.equal(wb.antigravityState({}, working), undefined);
+    });
+  });
+
   describe('wb.js command line', () => {
     let dir: string;
     let file: string;
@@ -89,6 +109,14 @@ describe('status', function () {
       const r = run(['hook', 'codex', JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': 'Fixed.' })]);
       assert.equal(r.status, 0);
       assert.equal(parseStatus(fs.readFileSync(file, 'utf8'))?.state, 'done');
+    });
+
+    it('writes the state from an Antigravity hook on stdin to $WB_STATUS_FILE', () => {
+      const r = run(['hook', 'antigravity'], JSON.stringify({ hook_event_name: 'PreToolUse', conversation_id: 'c-77' }));
+      assert.equal(r.status, 0);
+      const status = parseStatus(fs.readFileSync(file, 'utf8'));
+      assert.equal(status?.state, 'working');
+      assert.equal(status?.agentSessionId, 'c-77');
     });
 
     it('sets a state directly for any other agent or script', () => {
@@ -151,6 +179,22 @@ describe('status', function () {
       for (const [event, entries] of Object.entries(settings.hooks)) {
         assert.equal(entries[0].hooks[0].type, 'command', event);
         assert.equal(entries[0].hooks[0].command, 'node "C:/Program Files/ext/bin/wb.js" hook claude', event);
+      }
+    });
+  });
+
+  describe('antigravityHookSettings', () => {
+    it('hooks every Antigravity lifecycle event under the agent-workbench group', () => {
+      const settings = antigravityHookSettings('C:\\Program Files\\ext\\bin\\wb.js') as Record<
+        string,
+        Record<string, { hooks: { type: string; command: string }[] }[]>
+      >;
+      const group = settings[ANTIGRAVITY_HOOK_GROUP];
+      assert.ok(group);
+      assert.deepEqual(Object.keys(group).sort(), ['PostInvocation', 'PostToolUse', 'PreInvocation', 'PreToolUse', 'SessionStart', 'Stop']);
+      for (const [event, entries] of Object.entries(group)) {
+        assert.equal(entries[0].hooks[0].type, 'command', event);
+        assert.equal(entries[0].hooks[0].command, 'node "C:/Program Files/ext/bin/wb.js" hook antigravity', event);
       }
     });
   });

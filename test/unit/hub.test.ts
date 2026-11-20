@@ -179,6 +179,8 @@ describe('hub', () => {
   describe('parseHubMessage', () => {
     it('accepts known commands and rejects anything else', () => {
       assert.deepEqual(parseHubMessage({ command: 'openAgent', session: 's-1' }), { command: 'openAgent', session: 's-1' });
+      assert.deepEqual(parseHubMessage({ command: 'createPr', session: 's-1' }), { command: 'createPr', session: 's-1' });
+      assert.deepEqual(parseHubMessage({ command: 'finishSession', session: 's-1' }), { command: 'finishSession', session: 's-1' });
       assert.deepEqual(parseHubMessage({ command: 'newSession' }), { command: 'newSession' });
       assert.deepEqual(parseHubMessage({ command: 'startTimer' }), { command: 'startTimer' });
       assert.deepEqual(parseHubMessage({ command: 'stopTimer' }), { command: 'stopTimer' });

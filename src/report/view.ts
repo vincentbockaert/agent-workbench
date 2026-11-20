@@ -43,7 +43,7 @@ export function isoWeek(date: Date): number {
   return 1 + Math.floor((utc.getTime() - yearStart) / 86_400_000 / 7);
 }
 
-export type ReportViewRow = ReportRow & { entry?: EntryStatus };
+export type ReportViewRow = ReportRow & { entry?: EntryStatus; canBook?: boolean };
 
 export interface ReportViewDay {
   label: string; // "Tue, Nov 3"
@@ -59,6 +59,7 @@ export interface ReportView {
   ticketCount: number;
   eventCount: number; // events dated inside the period
   openCount: number; // rows "Mark as entered…" would offer
+  bookableOpenCount: number; // open rows whose ticket source has logTimeCmd
 }
 
 const dayLabel = (d: Date) => `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
@@ -81,9 +82,14 @@ export function buildReportView(
   opts: ReportOptions,
   now: Date,
   entryState?: (row: ReportRow) => EntryStatus,
+  canBook?: (ticket: string) => boolean,
 ): ReportView {
   const days = localDays(period.from, period.to);
-  const rows: ReportViewRow[] = buildReport(events, days, titles, opts).map((r) => (entryState ? { ...r, entry: entryState(r) } : r));
+  const rows: ReportViewRow[] = buildReport(events, days, titles, opts).map((r) => ({
+    ...r,
+    ...(entryState ? { entry: entryState(r) } : {}),
+    ...(canBook ? { canBook: canBook(r.ticket) } : {}),
+  }));
   const viewDays: ReportViewDay[] = [];
   for (const day of days) {
     const dayRows = rows.filter((r) => r.day === day.label);
@@ -106,6 +112,7 @@ export function buildReportView(
     totals: sum(rows),
     ticketCount: new Set(rows.map((r) => r.ticket)).size,
     openCount: rows.filter((r) => isOpen(r.entry)).length,
+    bookableOpenCount: rows.filter((r) => r.canBook && isOpen(r.entry)).length,
     eventCount: events.filter((e) => {
       const t = Date.parse(e.ts);
       return t >= start && t < end;
@@ -124,16 +131,25 @@ export type ReportMessage =
   | { command: 'setBooked'; booked: BookedFigure }
   | { command: 'setRounding'; roundToMinutes: number }
   | { command: 'copyCsv' }
-  | { command: 'markEntered' };
+  | { command: 'markEntered' }
+  | { command: 'bookToTracker' }
+  | { command: 'enterRow'; ticket: string; day: string }
+  | { command: 'bookRow'; ticket: string; day: string }
+  | { command: 'undoRow'; ticket: string; day: string };
 
-function entryCell(entry: EntryStatus | undefined): string {
+function entryCell(row: ReportViewRow): string {
+  const entry = row.entry;
+  const data = `data-ticket="${esc(row.ticket)}" data-day="${esc(row.day)}"`;
+  const bookBtn = row.canBook ? ` <button class="mini primary" data-command="bookRow" ${data} title="Book time directly in tracker">Book</button>` : '';
+  const enterBtn = ` <button class="mini" data-command="enterRow" ${data} title="Mark as entered locally">Enter</button>`;
+  const undoBtn = ` <button class="mini ghost" data-command="undoRow" ${data} title="Undo local entered marker">Undo</button>`;
   switch (entry?.kind) {
     case 'entered':
-      return '<span class="ok">✓ entered</span>';
+      return `<span class="ok">✓ ${entry.via === 'tracker' ? 'booked' : 'entered'}</span>${undoBtn}`;
     case 'changed':
-      return `<span class="warn">entered ${formatDuration(entry.enteredMinutes * 60_000)}, now ${formatDuration(entry.minutes * 60_000)}</span>`;
+      return `<span class="warn">entered ${formatDuration(entry.enteredMinutes * 60_000)}, now ${formatDuration(entry.minutes * 60_000)}</span>${isOpen(entry) ? `${bookBtn}${enterBtn}` : ''}${undoBtn}`;
     case 'open':
-      return '<span class="muted">not yet</span>';
+      return `<span class="muted">not yet</span>${bookBtn}${enterBtn}`;
     default:
       return '';
   }
@@ -143,8 +159,7 @@ function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
-// The report tab's HTML. Ticket titles are tracker text: escaped.
-export function renderTimeReport(view: ReportView, state: ReportState, nonce: string, cspSource: string): string {
+export function renderTimeReportBody(view: ReportView, state: ReportState): string {
   const f = formatDuration;
   const periodButtons = PERIOD_IDS.map((id) => `<button role="radio" data-period="${id}" aria-checked="${id === state.period}">${PERIOD_LABELS[id]}</button>`).join('');
   const bookedOptions = (Object.keys(BOOKED_LABELS) as BookedFigure[]).map((b) => `<option value="${b}"${b === state.booked ? ' selected' : ''}>${BOOKED_LABELS[b]}</option>`).join('');
@@ -152,11 +167,11 @@ export function renderTimeReport(view: ReportView, state: ReportState, nonce: st
   const body = view.days
     .map(
       (d) =>
-        `<tr class="day"><td colspan="7">${esc(d.label)}${d.isToday ? ' · today' : ''}</td></tr>` +
+        `<tr class="day"><td colspan="8">${esc(d.label)}${d.isToday ? ' · today' : ''}</td></tr>` +
         d.rows
           .map(
             (r) =>
-              `<tr><td class="mono">${esc(r.ticket)}</td><td>${esc(r.title)}</td><td class="num">${f(r.yourMs)}</td><td class="num">${f(r.agentMs)}</td><td class="num">${f(r.elapsedMs)}</td><td class="num">${f(r.timerMs)}</td><td class="num booked">${f(r.bookedMs)}</td><td>${entryCell(r.entry)}</td></tr>`,
+              `<tr><td class="mono">${esc(r.ticket)}</td><td>${esc(r.title)}</td><td class="num">${f(r.yourMs)}</td><td class="num">${f(r.agentMs)}</td><td class="num">${f(r.elapsedMs)}</td><td class="num">${f(r.timerMs)}</td><td class="num booked">${f(r.bookedMs)}</td><td class="entry">${entryCell(r)}</td></tr>`,
           )
           .join('') +
         `<tr class="subtotal"><td></td><td class="muted">Day total</td><td class="num">${f(d.totals.yourMs)}</td><td class="num">${f(d.totals.agentMs)}</td><td class="num">${f(d.totals.elapsedMs)}</td><td class="num">${f(d.totals.timerMs)}</td><td class="num booked">${f(d.totals.bookedMs)}</td><td></td></tr>`,
@@ -172,6 +187,32 @@ export function renderTimeReport(view: ReportView, state: ReportState, nonce: st
 <tfoot><tr><td>Total</td><td></td><td class="num you">${f(t.yourMs)}</td><td class="num agents">${f(t.agentMs)}</td><td class="num">${f(t.elapsedMs)}</td><td class="num">${f(t.timerMs)}</td><td class="num booked">${f(t.bookedMs)}</td><td></td></tr></tfoot>
 </table></div>`;
 
+  const bookHeaderBtn =
+    view.bookableOpenCount > 0
+      ? `<button id="book" class="primary" data-command="bookToTracker">Book to tracker… (${view.bookableOpenCount})</button>`
+      : '';
+
+  return `<header>
+  <div>
+    <h1>${esc(view.title)}</h1>
+    <span class="muted">Booked: <strong>${f(t.bookedMs)}</strong> across ${view.ticketCount} ticket${view.ticketCount === 1 ? '' : 's'} · computed from ${view.eventCount} recorded events</span>
+  </div>
+  <div class="actions">
+    <button id="copy" data-command="copyCsv">Copy as CSV</button>
+    ${bookHeaderBtn}
+    <button id="enter"${bookHeaderBtn ? '' : ' class="primary"'}${view.openCount > 0 ? '' : ' disabled title="Everything in this period is marked as entered"'} data-command="markEntered">Mark as entered… (${view.openCount})</button>
+  </div>
+</header>
+<div class="controls">
+  <div role="radiogroup" aria-label="Period">${periodButtons}</div>
+  <label>Book <select id="booked">${bookedOptions}</select></label>
+  <label>Round up to <select id="rounding">${roundingOptions}</select></label>
+</div>
+${table}`;
+}
+
+// The report tab's HTML. Ticket titles are tracker text: escaped.
+export function renderTimeReport(view: ReportView, state: ReportState, nonce: string, cspSource: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -186,22 +227,27 @@ h1{margin:0;font-size:24px;font-weight:600}
 .muted{color:var(--vscode-descriptionForeground)}.mono{font-family:var(--vscode-editor-font-family);font-size:12px}
 header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between}
 header div{display:flex;flex-direction:column;gap:6px}
-header div.actions{flex-direction:row;gap:8px}
+header div.actions{flex-direction:row;gap:8px;flex-wrap:wrap}
 button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+button.primary:hover{background:var(--vscode-button-hoverBackground)}
 button:disabled{opacity:.5;cursor:default}
 .ok{color:var(--vscode-charts-green)}.warn{color:var(--vscode-charts-orange)}
 .controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;padding:10px 12px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:var(--vscode-sideBar-background)}
 [role=radiogroup]{display:flex;border:1px solid var(--vscode-panel-border);border-radius:2px;overflow:hidden}
-button{font:inherit;min-height:28px;padding:0 12px;border:0;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);cursor:pointer}
+button{font:inherit;min-height:28px;padding:0 12px;border:0;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);cursor:pointer;border-radius:2px}
 button:hover{background:var(--vscode-button-secondaryHoverBackground)}
+button.mini{min-height:22px;padding:0 8px;font-size:11px;margin-left:4px}
+button.ghost{background:transparent;color:var(--vscode-descriptionForeground)}
+button.ghost:hover{background:var(--vscode-toolbar-hoverBackground);color:var(--vscode-foreground)}
 button[aria-checked=true]{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
 button[role=radio]{border-radius:0;background:transparent;color:var(--vscode-foreground)}
 label{display:flex;gap:8px;align-items:center;color:var(--vscode-descriptionForeground)}
 select{font:inherit;min-height:26px;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border)}
 .table{overflow-x:auto;border:1px solid var(--vscode-panel-border);border-radius:4px}
-table{width:100%;min-width:760px;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table{width:100%;min-width:820px;border-collapse:collapse;font-variant-numeric:tabular-nums}
 th{text-align:left;font-weight:500;font-size:12px;color:var(--vscode-descriptionForeground);padding:9px 12px;background:var(--vscode-sideBar-background)}
 td{padding:8px 12px;border-top:1px solid var(--vscode-panel-border)}
+td.entry{white-space:nowrap}
 .num{text-align:right}.booked{font-weight:600}
 tr.day td{font-weight:600;font-size:12px;background:var(--vscode-sideBar-background)}
 tr.subtotal td{font-size:12px}
@@ -210,33 +256,35 @@ tfoot td{font-weight:600;border-top:2px solid var(--vscode-panel-border)}
 </style>
 </head>
 <body>
-<main>
-<header>
-  <div>
-    <h1>${esc(view.title)}</h1>
-    <span class="muted">Booked: <strong>${f(t.bookedMs)}</strong> across ${view.ticketCount} ticket${view.ticketCount === 1 ? '' : 's'} · computed from ${view.eventCount} recorded events</span>
-  </div>
-  <div class="actions">
-    <button id="copy">Copy as CSV</button>
-    <button id="enter" class="primary"${view.openCount > 0 ? '' : ' disabled title="Everything in this period is marked as entered"'}>Mark as entered… (${view.openCount})</button>
-  </div>
-</header>
-<div class="controls">
-  <div role="radiogroup" aria-label="Period">${periodButtons}</div>
-  <label>Book <select id="booked">${bookedOptions}</select></label>
-  <label>Round up to <select id="rounding">${roundingOptions}</select></label>
-</div>
-${table}
+<main id="root">
+${renderTimeReportBody(view, state)}
 </main>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
-for (const b of document.querySelectorAll('[data-period]')) {
-  b.addEventListener('click', () => vscode.postMessage({ command: 'setPeriod', period: b.dataset.period }));
-}
-document.getElementById('booked').addEventListener('change', (e) => vscode.postMessage({ command: 'setBooked', booked: e.target.value }));
-document.getElementById('rounding').addEventListener('change', (e) => vscode.postMessage({ command: 'setRounding', roundToMinutes: e.target.value }));
-document.getElementById('copy').addEventListener('click', () => vscode.postMessage({ command: 'copyCsv' }));
-document.getElementById('enter').addEventListener('click', () => vscode.postMessage({ command: 'markEntered' }));
+const root = document.getElementById('root');
+root.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('button') : null;
+  if (!b || b.disabled) return;
+  if (b.dataset.period) {
+    vscode.postMessage({ command: 'setPeriod', period: b.dataset.period });
+    return;
+  }
+  if (b.dataset.command) {
+    vscode.postMessage({ command: b.dataset.command, ticket: b.dataset.ticket, day: b.dataset.day });
+  }
+});
+root.addEventListener('change', (e) => {
+  if (!e.target) return;
+  if (e.target.id === 'booked') vscode.postMessage({ command: 'setBooked', booked: e.target.value });
+  if (e.target.id === 'rounding') vscode.postMessage({ command: 'setRounding', roundToMinutes: e.target.value });
+});
+window.addEventListener('message', (e) => {
+  const msg = e.data;
+  if (!msg || msg.type !== 'update') return;
+  const scrollY = window.scrollY;
+  root.innerHTML = msg.html;
+  window.scrollTo(0, scrollY);
+});
 </script>
 </body>
 </html>`;
@@ -260,6 +308,14 @@ export function parseReportMessage(msg: unknown): ReportMessage | undefined {
       return { command: 'copyCsv' };
     case 'markEntered':
       return { command: 'markEntered' };
+    case 'bookToTracker':
+      return { command: 'bookToTracker' };
+    case 'enterRow':
+    case 'bookRow':
+    case 'undoRow':
+      return typeof m.ticket === 'string' && m.ticket !== '' && typeof m.day === 'string' && m.day !== ''
+        ? { command: m.command, ticket: m.ticket, day: m.day }
+        : undefined;
     default:
       return undefined;
   }
