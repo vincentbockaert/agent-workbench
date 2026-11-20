@@ -1,4 +1,5 @@
-import { AgentProfile } from './profiles';
+import { Session } from '../sessions/model';
+import { AgentOptions, AgentProfile } from './profiles';
 
 export interface AgentChoice {
   profile?: AgentProfile; // undefined = no agent, just the worktree
@@ -18,4 +19,13 @@ export function agentChoices(profiles: AgentProfile[], defaultId: string, lastUs
   }));
   const none: AgentChoice = { label: 'No agent — just the worktree' };
   return preferNone ? [none, ...choices] : [...choices, none];
+}
+
+// The model and effort of the newest session of this ticket that ran this agent; {} for ad-hoc work or none yet.
+export function lastOptions(sessions: Session[], ticket: { source: string; id: string } | undefined, agentId: string): AgentOptions {
+  if (!ticket) {
+    return {};
+  }
+  const last = sessions.filter((s) => s.ticket?.source === ticket.source && s.ticket.id === ticket.id && s.agent === agentId).pop();
+  return last ? { ...(last.model ? { model: last.model } : {}), ...(last.effort ? { effort: last.effort } : {}) } : {};
 }

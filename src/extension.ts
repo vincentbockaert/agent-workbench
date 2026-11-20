@@ -1,23 +1,26 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { agentChoices } from './agents/choices';
-import { agentCommand } from './agents/profiles';
+import { agentChoices, lastOptions } from './agents/choices';
+import { defaultOptionsFor, pickAgentOptions } from './agents/optionsPick';
+import { agentCommand, AgentOptions, supportsOptions } from './agents/profiles';
 import { agentProfiles, AgentTerminals } from './agents/terminals';
 import { WORK_VIEW_ID } from './constants';
 import { HubTicket } from './hub/model';
 import { TicketHubs } from './hub/panel';
 import { TimeReportPanel } from './report/panel';
+import { deleteBranchIfMerged, describeCandidate, removalCandidates, DEFAULT_IDLE_DAYS } from './sessions/cleanup';
 import { deleteSession, hasOtherTicketSessions, nextSessionId, startSession, WORKBENCH_DIR } from './sessions/lifecycle';
 import { Session, sessionsInRepos, sessionSlugBase } from './sessions/model';
 import { SessionStore } from './sessions/store';
 import { readSnapshot, refreshAll } from './tickets/snapshot';
 import { candidateRepos, expandSources } from './tickets/expand';
 import { BaseMode, describeBase, listBaseChoices, resolveBase } from './git/basebranch';
+import { git } from './git/git';
 import { discoverRepos, RepoInfo } from './git/repos';
 import { isStale, readPrSnapshot, refreshTicketPrs } from './pr/cache';
 import { prTargets } from './pr/targets';
-import { addWorktreeForBranch } from './git/worktree';
+import { addWorktreeForBranch, worktreeRootFor } from './git/worktree';
 import { WorkIndex } from './tickets/workIndex';
 import { Ticket, TicketSourceConfig } from './tickets/source';
 import { bookTimeToTracker, buildSetStatusCommand, syncStatusToTracker } from './tickets/trackerSync';
@@ -58,6 +61,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Configured sources resolved per repo / workspace; their (effective) names key snapshots and tickets.
   const effectiveSources = () => expandSources(ticketSources(), repos, commandCwd());
   const sessionsHere = () => sessionsInRepos(store.list(), repos);
+  // Read per use, so a changed setting applies to the next session; existing sessions keep their folder.
+  const worktreeRootOf = (repo: string): string =>
+    worktreeRootFor(repo, vscode.workspace.getConfiguration('agentWorkbench').get<string>('worktreesFolder', ''), os.homedir());
   // Looks again for repos (a folder was added, or a repo was cloned into the parent folder).
   const rediscover = async (): Promise<void> => {
     repos = await discoverRepos(workspacePaths());
@@ -82,9 +88,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const found = effectiveSources().find((s) => s.cfg.name === sourceName);
     return found ? { cfg: found.cfg, cwd: found.cwd, ticketId } : undefined;
   };
-  const setTicketWorkStatus = (key: string, next: WorkStatus): void => {
-    workflow.set(key, next);
-    tree.refresh();
+  const syncStatusIfConfigured = (key: string, next: WorkStatus): void => {
     const mode = vscode.workspace.getConfiguration('agentWorkbench').get<'ask' | 'auto' | 'off'>('syncStatusToTracker', 'ask');
     if (mode === 'off') {
       return;
@@ -121,13 +125,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const key = ticketKey(session);
       const next = statusAfter(workflow.get(key), event);
       if (next) {
-        setTicketWorkStatus(key, next);
+        void setWorkStatus(key, next);
       }
     }
   };
   // Branches and worktrees of every repo, read once per refresh so tickets can list their manual work.
   const workIndex = new WorkIndex(() => repos);
-  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex, () => tracker.clock.state(), () => tracker.liveToday());
+  const cleanupHints = new Map<string, string>(); // session id -> note on its row; filled by refreshCleanupHints
+  const tree = new WorkTreeProvider(() => effectiveSources().map((s) => s.cfg), snapshotDir, sessionsHere, (id) => signals.get(id), () => tracker.today(), (key) => workflow.get(key), workIndex, () => tracker.clock.state(), () => tracker.liveToday(), (id) => cleanupHints.get(id));
   void workIndex.ensure().then(() => tree.refresh());
   const view = vscode.window.createTreeView(WORK_VIEW_ID, { treeDataProvider: tree });
   const logDir = path.join(context.globalStorageUri.fsPath, 'timelog');
@@ -184,6 +189,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changed = (): void => {
     signals.sync();
     tree.refresh();
+    void refreshCleanupHints();
   };
   const agents = new AgentTerminals(store, context.asAbsolutePath('bin/wb.js'), changed, (t, s) => {
     tracker.registerTerminal(t, s);
@@ -212,6 +218,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const prDir = path.join(context.globalStorageUri.fsPath, 'prs');
   const prRefreshing = new Set<string>();
+
+  // --- Cleanup of finished sessions. Quiet by design: a note on the row and a command, never a popup. ---
+  const cleanupSettings = () => {
+    const c = vscode.workspace.getConfiguration('agentWorkbench');
+    return { hints: c.get<boolean>('showCleanupHints', true), idleDays: c.get<number>('idleDays', DEFAULT_IDLE_DAYS), deleteBranches: c.get<boolean>('cleanup.deleteMergedBranches', false) };
+  };
+  // Pull requests from the cache only (no network), for the sessions that belong to a ticket.
+  const cachedPrs = () => [...new Set(sessionsHere().map((s) => ticketKey(s)))].flatMap((key) => readPrSnapshot(prDir, key)?.prs ?? []);
+  let hintsRunning = false;
+  let hintsAt = 0;
+  async function refreshCleanupHints(force = false): Promise<void> {
+    if (hintsRunning || (!force && Date.now() - hintsAt < 60_000)) {
+      return;
+    }
+    hintsRunning = true;
+    try {
+      const { hints, idleDays } = cleanupSettings();
+      const next = new Map<string, string>();
+      if (hints) {
+        for (const c of await removalCandidates(sessionsHere(), cachedPrs(), new Date(), idleDays, workflow.doneKeys())) {
+          const hint = describeCandidate(c).hint;
+          if (hint) {
+            next.set(c.session.id, hint);
+          }
+        }
+      }
+      const same = next.size === cleanupHints.size && [...next].every(([k, v]) => cleanupHints.get(k) === v);
+      if (!same) {
+        cleanupHints.clear();
+        next.forEach((v, k) => cleanupHints.set(k, v));
+        tree.refresh();
+      }
+    } catch {
+      // hints are a convenience: never bother the user with a failure
+    } finally {
+      hintsAt = Date.now();
+      hintsRunning = false;
+    }
+  }
+  void refreshCleanupHints(true);
   const prSettings = () => {
     const c = vscode.workspace.getConfiguration('agentWorkbench');
     return { enabled: c.get<boolean>('pullRequests.enabled', true), maxAgeMs: c.get<number>('pullRequests.refreshMinutes', 5) * 60_000 };
@@ -230,6 +276,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showErrorMessage(`Agent Workbench: could not refresh pull requests: ${(e as Error).message}`);
     } finally {
       prRefreshing.delete(key);
+      void refreshCleanupHints(true);
       hubs.refreshAll();
     }
   }
@@ -255,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onMessage: (key, msg, session) => {
       switch (msg.command) {
         case 'setStatus':
-          return setTicketWorkStatus(key, msg.status);
+          return void setWorkStatus(key, msg.status);
         case 'newSession': {
           const t = snapshotTicket(key);
           return t ? void newSession({ ticket: t }) : undefined;
@@ -334,7 +381,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { ref: c.ref, label: d.label, description: d.description, warning: d.warning };
         });
         const selectedBranch = 'ref' in decision ? decision.ref : branches[0].ref;
-        const predicted = await nextSessionId(repoRoot, sessionSlugBase(opts.ticket, opts.adhoc?.title || 'adhoc'), store);
+        const predicted = await nextSessionId(repoRoot, sessionSlugBase(opts.ticket, opts.adhoc?.title || 'adhoc'), store, worktreeRootOf(repoRoot));
         return { branches, selectedBranch, predictedBranch: `wb/${predicted}` };
       };
 
@@ -343,6 +390,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const lastUsed = opts.ticket
         ? store.list().filter((s) => s.ticket?.source === opts.ticket!.source && s.ticket.id === opts.ticket!.id && s.agent).pop()?.agent
         : undefined;
+      const ticketRef = opts.ticket ? { source: opts.ticket.source, id: opts.ticket.id } : undefined;
       const choices = agentChoices(agentProfiles().profiles, cfg.get<string>('defaultAgent', 'claude'), lastUsed, !cfg.get<boolean>('startAgentOnCreate', true));
       const predictedId = initialRepoState.predictedBranch.replace(/^wb\//, '');
       const agentOptions = choices.map((c) => ({
@@ -350,7 +398,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         label: c.label,
         description: c.description,
         detail: c.profile
-          ? agentCommand(c.profile, 'start-bare', { sessionId: predictedId, branch: initialRepoState.predictedBranch })
+          ? agentCommand(
+              c.profile,
+              'start-bare',
+              { sessionId: predictedId, branch: initialRepoState.predictedBranch },
+              { ...defaultOptionsFor(c.profile), ...lastOptions(store.list(), ticketRef, c.profile.id) },
+            )
           : 'Work on it yourself; time is still tracked on this ticket',
       }));
 
@@ -377,20 +430,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       const adhocPayload = isAdhoc ? { title: result.adhocTitle || opts.adhoc?.title || 'Ad-hoc session', description: opts.adhoc?.description ?? '' } : undefined;
+      const chosenProfile = result.agentId === 'none' ? undefined : agentProfiles().profiles.find((p) => p.id === result.agentId);
+      const agentOpts = chosenProfile ? { ...defaultOptionsFor(chosenProfile), ...lastOptions(store.list(), ticketRef, chosenProfile.id) } : undefined;
       const session = await startSession({
         repo: result.repoRoot,
         baseRef: result.baseRef,
         store,
         instructions: result.withPrompt ? result.instructions : '',
+        worktreeRoot: worktreeRootOf(result.repoRoot),
         ...(opts.ticket ? { ticket: opts.ticket } : { adhoc: adhocPayload }),
       });
       tracker.sessionStarted(session);
       clockOn(session);
       advance(session, 'session-started');
       changed();
-      const chosenProfile = result.agentId === 'none' ? undefined : agentProfiles().profiles.find((p) => p.id === result.agentId);
       if (chosenProfile) {
-        agents.startWith(session, chosenProfile, result.withPrompt && result.instructions.trim() !== '');
+        agents.startWith(session, chosenProfile, result.withPrompt && result.instructions.trim() !== '', agentOpts);
       } else {
         await vscode.window.showTextDocument(vscode.Uri.file(path.join(session.worktree, WORKBENCH_DIR, 'TASK.md')));
       }
@@ -458,13 +513,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const answer = await vscode.window.showInformationMessage(`That was the last session of ${ended.ticket.id}. Mark it Done in the workbench?`, 'Mark Done', 'Keep');
     if (answer === 'Mark Done') {
-      setTicketWorkStatus(key, 'done');
+      await setWorkStatus(key, 'done');
     }
   }
 
   function updateViewDescription(): void {
     const parts = [tree.filter ? `filter: ${tree.filter}` : undefined, tree.hideDone ? 'done hidden' : undefined].filter(Boolean);
     view.description = parts.length > 0 ? parts.join(' · ') : undefined;
+  }
+
+  // Sets the workbench status, optionally syncs it to the tracker, and when moving a ticket to Done
+  // removes its clean sessions' worktrees (branches kept).
+  async function setWorkStatus(key: string, status: WorkStatus): Promise<void> {
+    const before = workflow.get(key);
+    workflow.set(key, status);
+    tree.refresh();
+    syncStatusIfConfigured(key, status);
+    if (status !== 'done' || before === 'done') {
+      return;
+    }
+    const mine = sessionsHere().filter((s) => ticketKey(s) === key && s.ticket);
+    const idle = mine.filter((s) => {
+      const state = signals.get(s.id)?.state;
+      return state !== 'working' && state !== 'needs-input';
+    });
+    const removable = (await removalCandidates(idle, [], new Date(), cleanupSettings().idleDays, new Set([key]))).filter((c) => c.blockers.length === 0);
+    for (const { session: s } of removable) {
+      try {
+        await deleteSession(store, s);
+      } catch {
+        continue;
+      }
+      tracker.sessionEnded(s);
+    }
+    if (removable.length && !hasOtherTicketSessions(store.list(), mine[0])) {
+      tracker.clock.stop(key);
+    }
+    if (removable.length) {
+      changed();
+      void refreshCleanupHints(true);
+    }
+    const left = mine.length - removable.length;
+    void vscode.window.setStatusBarMessage(
+      removable.length || left ? `${key}: Done. Removed ${removable.length} worktree(s), branches kept${left ? `; ${left} session(s) kept (uncommitted changes or agent active)` : ''}.` : `${key}: Done.`,
+      8000,
+    );
   }
 
   function setHideDone(hide: boolean): void {
@@ -533,7 +626,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { title: `Workbench status of ${node.group.ticket.id}`, placeHolder: 'Only changes the workbench; the tracker is never touched' },
       );
       if (picked) {
-        setTicketWorkStatus(key, picked.status);
+        await setWorkStatus(key, picked.status);
       }
     }),
 
@@ -629,7 +722,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const { repo, branch } = node.branch;
       return guarded(async () => {
-        const dir = await addWorktreeForBranch(repo.root, branch);
+        const dir = await addWorktreeForBranch(repo.root, branch, worktreeRootOf(repo.root));
         workIndex.invalidate(repo.root);
         await workIndex.ensure();
         tree.refresh();
@@ -663,6 +756,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('agentWorkbench.startAgent', (node: WorkNode) =>
       node?.kind === 'session' ? (clockOn(node.session), guarded(() => agents.start(node.session, true))) : undefined,
     ),
+
+    // For the next start or resume in this session; a running agent keeps its model (use its own /model there).
+    vscode.commands.registerCommand('agentWorkbench.changeAgentOptions', (node?: WorkNode) => {
+      const session = sessionOf(node);
+      if (!session) {
+        return undefined;
+      }
+      return guarded(async () => {
+        const current = store.list().find((s) => s.id === session.id) ?? session;
+        const { profiles } = agentProfiles();
+        const profile = profiles.find((p) => p.id === (current.agent ?? vscode.workspace.getConfiguration('agentWorkbench').get<string>('defaultAgent', 'claude')));
+        if (!profile || !supportsOptions(profile)) {
+          void vscode.window.showInformationMessage(`Agent Workbench: ${profile?.label ?? 'this agent'} takes no model or effort (see agentWorkbench.agents).`);
+          return;
+        }
+        const picked = await pickAgentOptions(profile, { model: current.model, effort: current.effort }, current.title ?? current.id);
+        if (!picked) {
+          return;
+        }
+        store.update(session.id, { agent: profile.id, model: picked.model, effort: picked.effort });
+        tree.refresh();
+        const what = [picked.model, picked.effort].filter(Boolean).join(' · ') || "the agent's own defaults";
+        void vscode.window.showInformationMessage(`${current.title ?? current.id}: ${profile.label} uses ${what} from the next start or resume. A running agent keeps its model; use its /model to switch now.`);
+      });
+    }),
 
     vscode.commands.registerCommand('agentWorkbench.resumeAgent', (node: WorkNode) =>
       node?.kind === 'session' ? (clockOn(node.session), guarded(() => agents.resume(node.session))) : undefined,
@@ -731,6 +849,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage(`Finished ${s.id}: worktree removed, branch ${s.branch} kept.`);
       await offerDone(s);
       changed();
+    }),
+
+    // Lists sessions that can go (merged, closed, pushed, idle ...) and removes the ones you tick. Branches are kept;
+    // sessions with uncommitted changes are never offered.
+    vscode.commands.registerCommand('agentWorkbench.cleanSessions', async () => {
+      const all = await removalCandidates(sessionsHere(), cachedPrs(), new Date(), cleanupSettings().idleDays, workflow.doneKeys());
+      const removable = all.filter((c) => c.blockers.length === 0);
+      const blocked = all.length - removable.length;
+      if (!removable.length) {
+        void vscode.window.showInformationMessage(blocked ? `Nothing to clean up: ${blocked} session(s) have uncommitted changes.` : 'Nothing to clean up.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        removable.map((c) => ({ label: c.session.title ?? c.session.id, description: c.session.id, detail: describeCandidate(c).text, picked: c.suggested, c })),
+        {
+          canPickMany: true,
+          title: `Clean up sessions${blocked ? ` (${blocked} with uncommitted changes not listed)` : ''}`,
+          placeHolder: 'Worktree folders are removed, branches are kept. Merged and closed ones are ticked.',
+        },
+      );
+      if (!picked?.length) {
+        return;
+      }
+      if (picked.some((p) => p.c.reasons.includes('local-only'))) {
+        const ok = await vscode.window.showWarningMessage(
+          'Some of these sessions have commits that exist only on this machine. The branches are kept, but nothing has been pushed.',
+          { modal: true },
+          'Remove Anyway',
+        );
+        if (ok !== 'Remove Anyway') {
+          return;
+        }
+      }
+      const failed: string[] = [];
+      let branchesDeleted = 0;
+      for (const { c } of picked) {
+        const s = c.session;
+        try {
+          await deleteSession(store, s);
+        } catch {
+          failed.push(s.id);
+          continue;
+        }
+        tracker.sessionEnded(s);
+        if (!hasOtherTicketSessions(store.list(), s)) {
+          tracker.clock.stop(ticketKey(s));
+        }
+        if (cleanupSettings().deleteBranches && (await deleteBranchIfMerged(s, c.reasons))) {
+          branchesDeleted++;
+        }
+      }
+      for (const repo of new Set(picked.map((p) => p.c.session.repo))) {
+        await git(repo, ['worktree', 'prune']).catch(() => undefined); // registrations whose folder is already gone
+      }
+      changed();
+      void refreshCleanupHints(true);
+      const done = picked.length - failed.length;
+      void vscode.window.showInformationMessage(
+        `Removed ${done} worktree(s)${branchesDeleted ? `, deleted ${branchesDeleted} merged branch(es), other branches kept` : ', branches kept'}.${failed.length ? ` Could not remove: ${failed.join(', ')}.` : ''}`,
+      );
     }),
 
     vscode.commands.registerCommand(START_AGENT_COMMAND, () => startWithInstructions()),

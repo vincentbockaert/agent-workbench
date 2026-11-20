@@ -2,7 +2,7 @@
   "name": "agent-workbench",
   "displayName": "Agent Workbench",
   "description": "Control room for parallel, ticket-driven agentic coding sessions in git worktrees.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "local",
   "license": "Apache-2.0",
@@ -112,6 +112,12 @@
         "icon": "$(check-all)"
       },
       {
+        "command": "agentWorkbench.cleanSessions",
+        "title": "Clean Up Sessions…",
+        "category": "Agent Workbench",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "agentWorkbench.deleteSession",
         "title": "Delete Session",
         "category": "Agent Workbench",
@@ -197,6 +203,12 @@
         "title": "Timers…",
         "category": "Agent Workbench",
         "icon": "$(watch)"
+      },
+      {
+        "command": "agentWorkbench.changeAgentOptions",
+        "title": "Change Model and Effort…",
+        "category": "Agent Workbench",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -321,6 +333,11 @@
           "group": "0_agent@3"
         },
         {
+          "command": "agentWorkbench.changeAgentOptions",
+          "when": "view == agentWorkbench.work && viewItem == session",
+          "group": "0_agent@4"
+        },
+        {
           "command": "agentWorkbench.openSessionTask",
           "when": "view == agentWorkbench.work && viewItem == session",
           "group": "1_open"
@@ -420,6 +437,10 @@
           "when": "agentWorkbench.inSession"
         },
         {
+          "command": "agentWorkbench.changeAgentOptions",
+          "when": "agentWorkbench.inSession"
+        },
+        {
           "command": "agentWorkbench.startAgent",
           "when": "false"
         },
@@ -451,7 +472,7 @@
         "agentWorkbench.agents": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code), `antigravity` (Google Antigravity `agy`), and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`, `${agentSessionId}`.",
+          "markdownDescription": "Extra or overriding agent profiles. Built in: `claude` (Claude Code), `antigravity` (Google Antigravity `agy`), and `codex`. A profile with the same `id` replaces the built-in one (including its `startNoPromptCmd`). Commands run in the session's worktree; placeholders: `${promptFile}` (relative path to `.workbench/TASK.md`), `${sessionId}`, `${branch}`, `${agentSessionId}`, and `${options}` for the model and effort picked when you start work (see `modelArg`, `effortArg`).",
           "items": {
             "type": "object",
             "required": [
@@ -482,6 +503,36 @@
               "resumeWithIdCmd": {
                 "type": "string",
                 "description": "Resumes a specific conversation when status.json recorded an agentSessionId, e.g. `agy --conversation ${agentSessionId}`."
+              },
+              "modelArg": {
+                "type": "string",
+                "description": "How to pass a model, with ${value} for it, e.g. `--model ${value}`. Lands at ${options} in the commands."
+              },
+              "effortArg": {
+                "type": "string",
+                "description": "How to pass an effort level, e.g. `--effort ${value}`. Lands at ${options} in the commands."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Models the picker offers (you can always type another)."
+              },
+              "efforts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Effort levels the picker offers."
+              },
+              "defaultModel": {
+                "type": "string",
+                "description": "Model preselected when this ticket has no earlier choice and agentWorkbench.agentDefaults sets none."
+              },
+              "defaultEffort": {
+                "type": "string",
+                "description": "Effort preselected when this ticket has no earlier choice and agentWorkbench.agentDefaults sets none."
               }
             }
           }
@@ -490,6 +541,23 @@
           "type": "string",
           "default": "claude",
           "description": "Agent profile id used when a session starts its agent automatically or via Open Agent."
+        },
+        "agentWorkbench.agentDefaults": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Model and effort preselected per agent when a ticket has no earlier choice, e.g. `{ \"claude\": { \"model\": \"opus\", \"effort\": \"high\" } }`. Without an entry, Claude Code preselects `sonnet` and `medium`. You still pick when you start work; this only sets what Enter accepts.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              }
+            }
+          }
         },
         "agentWorkbench.baseBranch": {
           "type": "string",
@@ -516,6 +584,22 @@
           "default": 5,
           "minimum": 1,
           "description": "Refresh a ticket's pull requests when its tab opens if the cached list is older than this many minutes. The Refresh button always refreshes."
+        },
+        "agentWorkbench.showCleanupHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a quiet note on a session row when its pull request was merged or closed (or its branch is already merged) and the worktree can be removed. Never opens a popup; Clean Up Sessions lists them."
+        },
+        "agentWorkbench.cleanup.deleteMergedBranches": {
+          "type": "boolean",
+          "default": false,
+          "description": "When Clean Up Sessions removes a session whose pull request was merged (or whose branch is already merged), also delete its local branch. Branches of closed, pushed or idle sessions are always kept."
+        },
+        "agentWorkbench.idleDays": {
+          "type": "number",
+          "default": 14,
+          "minimum": 1,
+          "description": "Clean Up Sessions lists a session as idle after this many days without commits. Idle sessions are listed, not ticked."
         },
         "agentWorkbench.startAgentOnCreate": {
           "type": "boolean",
@@ -581,6 +665,11 @@
             "Never sync workbench status changes to ticket sources."
           ],
           "description": "Whether workbench status changes should also transition the ticket in sources that configure setStatusCmd and statusMap."
+        },
+        "agentWorkbench.worktreesFolder": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where session worktrees go. Empty (default): one hidden `.worktrees` folder next to your repos, with a folder per repo (`~/repos/.worktrees/<repo>/<session>`). Otherwise a path: `{parent}` is the folder that holds the repo, `{repo}` its name, `~` your home; a relative path starts in `{parent}`, and without `{repo}` the repo name is added. `{parent}/{repo}.worktrees` is the layout of 0.0.4 and earlier. Existing sessions keep their folder."
         },
         "agentWorkbench.ticketSources": {
           "type": "array",
