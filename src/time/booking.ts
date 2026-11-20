@@ -23,8 +23,8 @@ export function enteredMinutesOf(ticket: string, day: string, entered: EnteredEn
   for (const e of entered) {
     if (e.ticket === ticket && e.day === day) {
       total += e.minutes;
-      if (e.minutes > 0) {
-        lastVia = e.via ?? 'local';
+      if (e.minutes > 0 && e.via) {
+        lastVia = e.via;
       }
     }
   }
